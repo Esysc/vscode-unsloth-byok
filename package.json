@@ -2,19 +2,34 @@
   "name": "unsloth-byok",
   "displayName": "Unsloth BYOK Models",
   "description": "Zero-touch dynamic language model provider for any OpenAI-compatible endpoint. Models are discovered live from /v1/models — no manual list maintenance.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "cristall",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Esysc/vscode-unsloth-byok.git"
+  },
+  "keywords": [
+    "unsloth",
+    "byok",
+    "openai",
+    "openai-compatible",
+    "llm",
+    "chat",
+    "copilot"
+  ],
   "license": "MIT",
-  "private": true,
   "engines": {
     "vscode": "^1.104.0"
   },
   "categories": [
+    "AI",
+    "Chat",
     "Other"
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onLanguageModelChatProvider:unsloth"
+    "onLanguageModelChatProvider:unsloth-byok"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -60,7 +75,7 @@
     },
     "languageModelChatProviders": [
       {
-        "vendor": "unsloth",
+        "vendor": "unsloth-byok",
         "displayName": "Unsloth",
         "configuration": {
           "type": "object",

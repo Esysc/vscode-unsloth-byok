@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-08-24
+
+### Changed
+
+- **Vendor id renamed** from `unsloth` to `unsloth-byok` to guarantee uniqueness on
+  the Visual Studio Marketplace / Open VSX. Model identifiers change accordingly
+  (`unsloth:<model>` → `unsloth-byok:<model>`); pinned or recently-used model
+  references reset once.
+- Prepared the extension for marketplace publishing: removed `private` flag, added
+  repository URL, icon, keywords and categories.
+
+### Fixed
+
+- Existing provider groups configured through the Add-model UI must use the new
+  vendor value; update `"vendor"` in your language models configuration file if
+  you set it up manually.
+
 ## [0.1.7] - 2026-08-24
 
 ### Fixed

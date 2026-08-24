@@ -18,7 +18,7 @@ const vscode = require('vscode');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const VENDOR = 'unsloth';
+const VENDOR = 'unsloth-byok';
 const SECRET_KEY = 'unslothByokApiKey';
 // Key name VS Code uses when storing credentials entered through the native
 // "Add model" (Manage Models) UI — mirrors the opencodego pattern (<vendor>.<property>).
@@ -35,7 +35,7 @@ function log(message) {
 }
 
 // No built-in endpoint: users configure their own OpenAI-compatible server
-// via `unslothByok.baseUrl` or the Add-model UI (`unsloth.baseUrl` secret).
+// via `unslothByok.baseUrl` or the Add-model UI (`unsloth-byok.baseUrl` secret).
 const DEFAULT_BASE_URL = '';
 
 function trimUrl(url) {

@@ -137,7 +137,7 @@ Set `unslothByok.debugLogging` to `true` in settings for verbose output of all o
 
 ## Notes
 
-- Vendor id is `unsloth`; diagnostics go to the **Unsloth BYOK** output channel.
+- Vendor id is `unsloth-byok`; diagnostics go to the **Unsloth BYOK** output channel.
 - Once this extension works, the old static `UNSLOTH` customendpoint entry in
   `chatLanguageModels.json` can be removed to avoid duplicate model listings.
 - Workspace context is injected as a system message, so it counts toward your token limit.
