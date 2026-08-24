@@ -1,3 +1,15 @@
+# VCS / tooling
 .git/**
+.github/**
+.serena/**
 node_modules/**
+.vscode/**
+.gitignore
+
+# Build artifacts
 *.vsix
+**/*.map
+
+# Repo-only docs & config
+.pre-commit-config.yaml
+RELEASE_NOTES.md

@@ -1,14 +1,14 @@
 'use strict';
 
 /**
- * Unsloth BYOK — zero-touch dynamic language model provider for VS Code Copilot Chat.
+ * BYOK Models — zero-touch dynamic language model provider for VS Code AI Chat.
  *
  * - Models are discovered live from `<baseUrl>/models` every time VS Code asks
  *   (provideLanguageModelChatInformation), so the picker always matches the server.
  * - Chat requests are streamed from `<baseUrl>/chat/completions` (SSE) and translated
  *   into LanguageModelTextPart / LanguageModelToolCallPart progress reports.
- * - The API key lives in VS Code secret storage (set via the "Unsloth BYOK: Set API Key"
- *   command), with an optional plaintext fallback in `unslothByok.apiKey`.
+ * - The API key lives in VS Code secret storage (set via the "BYOK Models: Set API Key"
+ *   command), with an optional plaintext fallback in `byokModels.apiKey`.
  * - Workspace context (active files, git info, project structure) is injected into
  *   system prompts to give models awareness of the user's project context.
  * - Tool results are logged and preserved across multi-turn interactions.
@@ -18,8 +18,8 @@ const vscode = require('vscode');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const VENDOR = 'unsloth-byok';
-const SECRET_KEY = 'unslothByokApiKey';
+const VENDOR = 'byok-models';
+const SECRET_KEY = 'byokModelsApiKey';
 // Key name VS Code uses when storing credentials entered through the native
 // "Add model" (Manage Models) UI — mirrors the opencodego pattern (<vendor>.<property>).
 const MANAGED_SECRET_KEY = `${VENDOR}.apiKey`;
@@ -29,13 +29,13 @@ let channel;
 
 function log(message) {
   if (!channel) {
-    channel = vscode.window.createOutputChannel('Unsloth BYOK');
+    channel = vscode.window.createOutputChannel('BYOK Models');
   }
   channel.appendLine(`[${new Date().toISOString()}] ${message}`);
 }
 
 // No built-in endpoint: users configure their own OpenAI-compatible server
-// via `unslothByok.baseUrl` or the Add-model UI (`unsloth-byok.baseUrl` secret).
+// via `byokModels.baseUrl` or the Add-model UI (`byok-models.baseUrl` secret).
 const DEFAULT_BASE_URL = '';
 
 function trimUrl(url) {
@@ -68,13 +68,13 @@ async function resolveBaseUrl(context) {
   }
   const configured = String(settings().get('baseUrl', '') || '').trim();
   if (configured) {
-    return { url: configured.endsWith('/') ? configured.slice(0, -1) : configured, source: 'setting:unslothByok.baseUrl' };
+    return { url: configured.endsWith('/') ? configured.slice(0, -1) : configured, source: 'setting:byokModels.baseUrl' };
   }
   return { url: DEFAULT_BASE_URL, source: 'default' };
 }
 
 function settings() {
-  return vscode.workspace.getConfiguration('unslothByok');
+  return vscode.workspace.getConfiguration('byokModels');
 }
 
 /**
@@ -225,7 +225,7 @@ async function getActiveFileContext(lines = 10) {
 }
 
 
-class UnslothProvider {
+class BYOK ModelsProvider {
   /**
    * @param {vscode.ExtensionContext} context
    */
@@ -263,7 +263,7 @@ class UnslothProvider {
       return `secret:${MANAGED_SECRET_KEY} (Add model UI)`;
     }
     if (String(settings().get('apiKey', '') || '').trim()) {
-      return 'setting:unslothByok.apiKey';
+      return 'setting:byokModels.apiKey';
     }
     if (((await this.context.secrets.get(SECRET_KEY)) ?? '').trim()) {
       return `secret:${SECRET_KEY} (legacy)`;
@@ -327,10 +327,10 @@ class UnslothProvider {
       if (!options.silent && !this._nudged) {
         this._nudged = true;
         void vscode.window
-          .showInformationMessage('Unsloth BYOK is not configured yet.', 'Set API Key')
+          .showInformationMessage('BYOK Models is not configured yet.', 'Set API Key')
           .then((pick) => {
             if (pick) {
-              void vscode.commands.executeCommand('unslothByok.setApiKey');
+              void vscode.commands.executeCommand('byokModels.setApiKey');
             }
           });
       }
@@ -395,7 +395,7 @@ class UnslothProvider {
       apiKey = await this.resolveApiKey();
     }
     if (!base || !apiKey) {
-      throw new Error('Unsloth BYOK is not configured (missing base URL or API key).');
+      throw new Error('BYOK Models is not configured (missing base URL or API key).');
     }
 
     // Gather and optionally inject workspace context
@@ -662,15 +662,15 @@ async function* sseData(body) {
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
-  channel = vscode.window.createOutputChannel('Unsloth BYOK');
+  channel = vscode.window.createOutputChannel('BYOK Models');
   context.subscriptions.push(channel);
 
-  const provider = new UnslothProvider(context);
+  const provider = new BYOK ModelsProvider(context);
   context.subscriptions.push(provider);
   context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('unslothByok.setApiKey', async () => {
+    vscode.commands.registerCommand('byokModels.setApiKey', async () => {
       const key = await vscode.window.showInputBox({
         prompt: `API key for the "${VENDOR}" model provider`,
         password: true,
@@ -682,7 +682,7 @@ function activate(context) {
       const trimmed = key.trim();
       if (!trimmed) {
         log('Set API Key cancelled: input was empty; nothing stored.');
-        void vscode.window.showWarningMessage('Unsloth BYOK: empty key — nothing stored.');
+        void vscode.window.showWarningMessage('BYOK Models: empty key — nothing stored.');
         return;
       }
       await context.secrets.store(MANAGED_SECRET_KEY, trimmed);
@@ -690,12 +690,12 @@ function activate(context) {
       const readStatus = readBack?.length ? `ok len=${readBack.length}` : 'FAILED';
       log(`API key stored (read-back: ${readStatus}).`);
       provider.fireChanged();
-      void vscode.window.showInformationMessage('Unsloth BYOK: API key stored. Model list will refresh automatically.');
+      void vscode.window.showInformationMessage('BYOK Models: API key stored. Model list will refresh automatically.');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('unslothByok.clearApiKey', async () => {
+    vscode.commands.registerCommand('byokModels.clearApiKey', async () => {
       await context.secrets.delete(SECRET_KEY);
       provider.fireChanged();
       log('API key cleared.');
@@ -703,27 +703,27 @@ function activate(context) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('unslothByok.refreshModels', () => {
+    vscode.commands.registerCommand('byokModels.refreshModels', () => {
       provider.fireChanged();
       log('Manual refresh requested.');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('unslothByok.showWorkspaceContext', async () => {
+    vscode.commands.registerCommand('byokModels.showWorkspaceContext', async () => {
       const wsCtx = await gatherWorkspaceContext();
       const contextStr = buildWorkspaceContextPrompt(wsCtx);
       log('=== Workspace Context Snapshot ===');
       log(contextStr);
       await vscode.window.showInformationMessage(
-        `Workspace context gathered: ${wsCtx.openFiles.length} open files, ${wsCtx.workspaceFolders.length} folders. Check Unsloth BYOK output channel for details.`
+        `Workspace context gathered: ${wsCtx.openFiles.length} open files, ${wsCtx.workspaceFolders.length} folders. Check BYOK Models output channel for details.`
       );
     })
   );
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('unslothByok')) {
+      if (e.affectsConfiguration('byokModels')) {
         provider.fireChanged();
       }
     })
@@ -739,7 +739,7 @@ function activate(context) {
     })
   );
 
-  log('Unsloth BYOK provider activated.');
+  log('BYOK Models provider activated.');
 }
 
 function deactivate() {

@@ -1,8 +1,8 @@
 {
-  "name": "unsloth-byok",
-  "displayName": "Unsloth BYOK Models",
-  "description": "Zero-touch dynamic language model provider for any OpenAI-compatible endpoint. Models are discovered live from /v1/models — no manual list maintenance.",
-  "version": "0.1.8",
+  "name": "byok-models",
+  "displayName": "BYOK Models — OpenAI-Compatible Provider",
+  "description": "Zero-touch dynamic language model provider for local inference. Works with any OpenAI-compatible endpoint — Ollama, LM Studio, vLLM, and more. Models are discovered live from /v1/models.",
+  "version": "0.1.9",
   "publisher": "cristall",
   "icon": "icon.png",
   "repository": {
@@ -10,13 +10,11 @@
     "url": "https://github.com/Esysc/vscode-unsloth-byok.git"
   },
   "keywords": [
-    "unsloth",
     "byok",
     "openai",
     "openai-compatible",
     "llm",
-    "chat",
-    "copilot"
+    "chat"
   ],
   "license": "MIT",
   "engines": {
@@ -29,62 +27,62 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onLanguageModelChatProvider:unsloth-byok"
+    "onLanguageModelChatProvider:byok-models"
   ],
   "main": "./extension.js",
   "contributes": {
     "configuration": {
-      "title": "Unsloth BYOK",
+      "title": "BYOK Models",
       "properties": {
-        "unslothByok.baseUrl": {
+        "byokModels.baseUrl": {
           "type": "string",
           "default": "",
           "description": "Base URL of the OpenAI-compatible API (should end with /v1). Models are fetched from <baseUrl>/models."
         },
-        "unslothByok.apiKey": {
+        "byokModels.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Plaintext fallback for the API key. Prefer the command **Unsloth BYOK: Set API Key**, which stores the key in VS Code secret storage."
+          "markdownDescription": "Plaintext fallback for the API key. Prefer the command **BYOK Models: Set API Key**, which stores the key in VS Code secret storage."
         },
-        "unslothByok.maxInputTokens": {
+        "byokModels.maxInputTokens": {
           "type": "number",
           "default": 262144,
           "description": "Reported max input tokens for discovered models."
         },
-        "unslothByok.maxOutputTokens": {
+        "byokModels.maxOutputTokens": {
           "type": "number",
           "default": 32768,
           "description": "Reported max output tokens for discovered models."
         },
-        "unslothByok.enableTools": {
+        "byokModels.enableTools": {
           "type": "boolean",
           "default": true,
           "description": "Advertise tool-calling capability (needed for Copilot agent mode) and pass tools through to the endpoint."
         },
-        "unslothByok.injectWorkspaceContext": {
+        "byokModels.injectWorkspaceContext": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Automatically inject workspace context (active files, git info, open tabs) into system prompts. Enables models to understand your project structure and provide more relevant responses."
         },
-        "unslothByok.debugLogging": {
+        "byokModels.debugLogging": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Enable verbose logging of tool calls, results, and workspace context. Check the **Unsloth BYOK** output channel for details."
+          "markdownDescription": "Enable verbose logging of tool calls, results, and workspace context. Check the **BYOK Models** output channel for details."
         }
       }
     },
     "languageModelChatProviders": [
       {
-        "vendor": "unsloth-byok",
-        "displayName": "Unsloth",
+        "vendor": "byok-models",
+        "displayName": "BYOK Models",
         "configuration": {
           "type": "object",
           "required": ["apiKey"],
           "properties": {
             "apiKey": {
               "type": "string",
-              "title": "Unsloth API Key",
-              "description": "Enter your Unsloth API key.",
+              "title": "API Key",
+              "description": "Enter your API key.",
               "secret": true
             },
             "baseUrl": {
@@ -99,24 +97,24 @@
     ],
     "commands": [
       {
-        "command": "unslothByok.setApiKey",
-        "title": "Unsloth BYOK: Set API Key",
-        "category": "Unsloth BYOK"
+        "command": "byokModels.setApiKey",
+        "title": "BYOK Models: Set API Key",
+        "category": "BYOK Models"
       },
       {
-        "command": "unslothByok.clearApiKey",
-        "title": "Unsloth BYOK: Clear API Key",
-        "category": "Unsloth BYOK"
+        "command": "byokModels.clearApiKey",
+        "title": "BYOK Models: Clear API Key",
+        "category": "BYOK Models"
       },
       {
-        "command": "unslothByok.refreshModels",
-        "title": "Unsloth BYOK: Refresh Model List",
-        "category": "Unsloth BYOK"
+        "command": "byokModels.refreshModels",
+        "title": "BYOK Models: Refresh Model List",
+        "category": "BYOK Models"
       },
       {
-        "command": "unslothByok.showWorkspaceContext",
-        "title": "Unsloth BYOK: Show Workspace Context",
-        "category": "Unsloth BYOK",
+        "command": "byokModels.showWorkspaceContext",
+        "title": "BYOK Models: Show Workspace Context",
+        "category": "BYOK Models",
         "description": "Display the workspace context that will be injected into model prompts."
       }
     ]

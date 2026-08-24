@@ -61,11 +61,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          VSIX=$(ls ./*.vsix 2>/dev/null | head -1)
+          if [ -z "$VSIX" ]; then
+            echo "::error::No .vsix file found after packaging."
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "v${{ steps.ver.outputs.version }}" \
             --notes-file RELEASE_NOTES.md \
-            ./unsloth-byok-*.vsix \
-          || gh release upload "$GITHUB_REF_NAME" ./unsloth-byok-*.vsix --clobber
+            "$VSIX" \
+          || gh release upload "$GITHUB_REF_NAME" "$VSIX" --clobber
 
       - name: Publish to Visual Studio Marketplace
         env:
