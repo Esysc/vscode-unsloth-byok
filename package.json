@@ -45,6 +45,16 @@
           "type": "boolean",
           "default": true,
           "description": "Advertise tool-calling capability (needed for Copilot agent mode) and pass tools through to the endpoint."
+        },
+        "unslothByok.injectWorkspaceContext": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Automatically inject workspace context (active files, git info, open tabs) into system prompts. Enables models to understand your project structure and provide more relevant responses."
+        },
+        "unslothByok.debugLogging": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable verbose logging of tool calls, results, and workspace context. Check the **Unsloth BYOK** output channel for details."
         }
       }
     },
@@ -87,6 +97,12 @@
         "command": "unslothByok.refreshModels",
         "title": "Unsloth BYOK: Refresh Model List",
         "category": "Unsloth BYOK"
+      },
+      {
+        "command": "unslothByok.showWorkspaceContext",
+        "title": "Unsloth BYOK: Show Workspace Context",
+        "category": "Unsloth BYOK",
+        "description": "Display the workspace context that will be injected into model prompts."
       }
     ]
   }

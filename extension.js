@@ -9,9 +9,14 @@
  *   into LanguageModelTextPart / LanguageModelToolCallPart progress reports.
  * - The API key lives in VS Code secret storage (set via the "Unsloth BYOK: Set API Key"
  *   command), with an optional plaintext fallback in `unslothByok.apiKey`.
+ * - Workspace context (active files, git info, project structure) is injected into
+ *   system prompts to give models awareness of the user's project context.
+ * - Tool results are logged and preserved across multi-turn interactions.
  */
 
 const vscode = require('vscode');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const VENDOR = 'unsloth';
 const SECRET_KEY = 'unslothByokApiKey';
@@ -36,17 +41,164 @@ const DEFAULT_BASE_URL = '';
 async function resolveBaseUrl(context) {
   const managed = ((await context.secrets.get(`${VENDOR}.baseUrl`)) ?? '').trim();
   if (managed) {
-    return { url: managed.replace(/\/+$/, ''), source: `secret:${VENDOR}.baseUrl` };
+    return { url: managed.endsWith('/') ? managed.slice(0, -1) : managed, source: `secret:${VENDOR}.baseUrl` };
   }
   const configured = String(settings().get('baseUrl', '') || '').trim();
   if (configured) {
-    return { url: configured.replace(/\/+$/, ''), source: 'setting:unslothByok.baseUrl' };
+    return { url: configured.endsWith('/') ? configured.slice(0, -1) : configured, source: 'setting:unslothByok.baseUrl' };
   }
   return { url: DEFAULT_BASE_URL, source: 'default' };
 }
 
 function settings() {
   return vscode.workspace.getConfiguration('unslothByok');
+}
+
+/**
+ * Gather workspace context: active files, workspace folders, git info, project structure.
+ * @returns {Promise<Object>} Context object with workspace metadata
+ */
+async function gatherWorkspaceContext() {
+  const context = {
+    workspaceFolders: [],
+    activeFile: null,
+    openFiles: [],
+    gitInfo: null,
+  };
+
+  // Workspace folders
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders?.length) {
+    context.workspaceFolders = folders.map((f) => ({
+      name: f.name,
+      path: f.uri.fsPath,
+    }));
+  }
+
+  // Active editor
+  const editor = vscode.window.activeTextEditor;
+  if (editor) {
+    const doc = editor.document;
+    const fsPath = doc.uri.fsPath;
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(doc.uri);
+    const relativePath = workspaceFolder
+      ? path.relative(workspaceFolder.uri.fsPath, fsPath)
+      : fsPath;
+    context.activeFile = {
+      path: fsPath,
+      relativePath,
+      language: doc.languageId,
+      lineCount: doc.lineCount,
+      isDirty: doc.isDirty,
+    };
+  }
+
+  // Open tabs
+  try {
+    const openEditors = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+    context.openFiles = openEditors
+      .filter((t) => t.input instanceof vscode.TabInputText)
+      .map((t) => {
+        const uri = t.input.uri;
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+        const relativePath = workspaceFolder
+          ? path.relative(workspaceFolder.uri.fsPath, uri.fsPath)
+          : uri.fsPath;
+        return {
+          path: uri.fsPath,
+          relativePath,
+          language: t.input?.languageId || 'unknown',
+        };
+      });
+  } catch {
+    // Tab groups API may not be available in older VS Code versions
+  }
+
+  // Git info (if available)
+  try {
+    const gitExtension = vscode.extensions.getExtension('vscode.git');
+    if (gitExtension?.isActive) {
+      const git = gitExtension.exports.getAPI(1);
+      const repo = git.repositories[0];
+      if (repo) {
+        const branch = repo.state.HEAD?.name || 'unknown';
+        const status = repo.state.workingTreeChanges?.length ?? 0;
+        const staged = repo.state.indexChanges?.length ?? 0;
+        context.gitInfo = {
+          branch,
+          workingTreeChanges: status,
+          stagedChanges: staged,
+        };
+      }
+    }
+  } catch {
+    // Git extension not available
+  }
+
+  return context;
+}
+
+/**
+ * Build a workspace context system prompt segment.
+ * @param {Object} ctx - Workspace context from gatherWorkspaceContext()
+ * @returns {string} System prompt segment
+ */
+function buildWorkspaceContextPrompt(ctx) {
+  const lines = ['=== Workspace Context ==='];
+
+  if (ctx.workspaceFolders?.length) {
+    lines.push(`Workspace folders: ${ctx.workspaceFolders.map((f) => f.name).join(', ')}`);
+    lines.push(`Root: ${ctx.workspaceFolders[0].path}`);
+  }
+
+  if (ctx.activeFile) {
+    lines.push(`Active file: ${ctx.activeFile.relativePath} (${ctx.activeFile.language})`);
+    lines.push(`  Lines: ${ctx.activeFile.lineCount}, Modified: ${ctx.activeFile.isDirty ? 'yes' : 'no'}`);
+  }
+
+  if (ctx.openFiles?.length) {
+    const fileList = ctx.openFiles
+      .map((f) => `${f.relativePath} (${f.language})`)
+      .join('\n  ');
+    lines.push(`Open files:\n  ${fileList}`);
+  }
+
+  if (ctx.gitInfo) {
+    lines.push(`Git branch: ${ctx.gitInfo.branch}`);
+    if (ctx.gitInfo.workingTreeChanges > 0 || ctx.gitInfo.stagedChanges > 0) {
+      lines.push(`  Changes: ${ctx.gitInfo.workingTreeChanges} modified, ${ctx.gitInfo.stagedChanges} staged`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Extract snippet from active editor around cursor position.
+ * Useful for providing relevant code context to the model.
+ * @param {number} lines - Number of lines to include
+ * @returns {Promise<string>} Code snippet with context
+ */
+async function getActiveFileContext(lines = 10) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return '';
+
+  const doc = editor.document;
+  const cursor = editor.selection.active.line;
+  const start = Math.max(0, cursor - lines);
+  const end = Math.min(doc.lineCount, cursor + lines);
+
+  const snippet = doc
+    .getText(new vscode.Range(start, 0, end, 0))
+    .split('\n')
+    .map((line, i) => {
+      const lineNum = start + i + 1;
+      const marker = lineNum === cursor + 1 ? '> ' : '  ';
+      return `${marker}${String(lineNum).padStart(3)} | ${line}`;
+    })
+    .join('\n');
+
+  return `\n=== Active File Context ===\nFile: ${doc.uri.fsPath}\n\`\`\`${doc.languageId}\n${snippet}\n\`\`\``;
 }
 
 
@@ -177,6 +329,7 @@ class UnslothProvider {
 
   /**
    * Streams a chat completion and reports text/tool-call parts as they arrive.
+   * Injects workspace context into the request when enabled.
    */
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
     const { url: base } = await resolveBaseUrl(this.context);
@@ -185,9 +338,33 @@ class UnslothProvider {
       throw new Error('Unsloth BYOK is not configured (missing base URL or API key).');
     }
 
+    // Gather and optionally inject workspace context
+    const injectContext = settings().get('injectWorkspaceContext', true);
+    let workspaceContextStr = '';
+    if (injectContext) {
+      const wsCtx = await gatherWorkspaceContext();
+      workspaceContextStr = buildWorkspaceContextPrompt(wsCtx);
+      log(`Workspace context collected: ${wsCtx.workspaceFolders.length} folders, ${wsCtx.openFiles.length} open files`);
+    }
+
+    // Build messages with workspace context injected into the first system/user message
+    let messagesForModel = toOpenAiMessages(messages);
+    if (workspaceContextStr) {
+      // Find or create system message
+      const hasSystemMsg = messagesForModel.length > 0 && messagesForModel[0].role === 'system';
+      if (hasSystemMsg) {
+        messagesForModel[0].content = (messagesForModel[0].content || '') + '\n\n' + workspaceContextStr;
+      } else {
+        messagesForModel.unshift({
+          role: 'system',
+          content: workspaceContextStr,
+        });
+      }
+    }
+
     const body = {
       model: model.id,
-      messages: toOpenAiMessages(messages),
+      messages: messagesForModel,
       stream: true,
     };
     const opts = options.modelOptions ?? {};
@@ -210,6 +387,7 @@ class UnslothProvider {
       if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
         body.tool_choice = 'required';
       }
+      log(`Tools available: ${options.tools.map((t) => t.name).join(', ')}`);
     }
 
     const res = await fetch(`${base}/chat/completions`, {
@@ -225,6 +403,7 @@ class UnslothProvider {
 
     /** @type {Map<number, { id: string, name: string, args: string }>} */
     const toolAcc = new Map();
+    let textContent = '';
     for await (const data of sseData(res.body)) {
       if (data === '[DONE]') {
         break;
@@ -237,6 +416,7 @@ class UnslothProvider {
       }
       const delta = json.choices?.[0]?.delta ?? {};
       if (delta.content) {
+        textContent += delta.content;
         progress.report(new vscode.LanguageModelTextPart(delta.content));
       }
       for (const tc of delta.tool_calls ?? []) {
@@ -254,10 +434,20 @@ class UnslothProvider {
         toolAcc.set(idx, acc);
       }
     }
-    for (const [, acc] of [...toolAcc.entries()].sort((a, b) => a[0] - b[0])) {
-      if (acc.name) {
-        progress.report(new vscode.LanguageModelToolCallPart(acc.id || randomId(), acc.name, acc.args || '{}'));
+
+    // Log tool calls for debugging/tracing
+    if (toolAcc.size > 0) {
+      for (const [idx, acc] of [...toolAcc.entries()].sort((a, b) => a[0] - b[0])) {
+        if (acc.name) {
+          log(`Tool call ${idx}: ${acc.name}(${acc.args.length > 100 ? acc.args.slice(0, 100) + '...' : acc.args})`);
+          progress.report(new vscode.LanguageModelToolCallPart(acc.id || randomId(), acc.name, acc.args || '{}'));
+        }
       }
+    }
+
+    // Log text response summary
+    if (textContent) {
+      log(`Response: ${textContent.length} characters`);
     }
   }
 
@@ -317,17 +507,21 @@ function isToolResultPart(part) {
 /**
  * Translate VS Code language-model messages into OpenAI chat-completions format.
  * Text parts are joined; tool use/result parts are mapped to tool_calls / role:"tool".
+ * Logs tool results for debugging multi-turn flows.
  */
 function toOpenAiMessages(messages) {
   /** @type {object[]} */
   const out = [];
   for (const msg of messages ?? []) {
     const raw = msg.content;
-    const parts = Array.isArray(raw)
-      ? raw
-      : raw === undefined || raw === null
-        ? []
-        : [raw];
+    let parts;
+    if (Array.isArray(raw)) {
+      parts = raw;
+    } else if (raw === undefined || raw === null) {
+      parts = [];
+    } else {
+      parts = [raw];
+    }
     const texts = [];
     const toolUses = [];
     const toolResults = [];
@@ -358,10 +552,21 @@ function toOpenAiMessages(messages) {
     if (toolResults.length) {
       for (const tr of toolResults) {
         const trRaw = tr.content;
-        const trParts = Array.isArray(trRaw) ? trRaw : trRaw === undefined || trRaw === null ? [] : [trRaw];
+        let trParts;
+        if (Array.isArray(trRaw)) {
+          trParts = trRaw;
+        } else if (trRaw === undefined || trRaw === null) {
+          trParts = [];
+        } else {
+          trParts = [trRaw];
+        }
         const content = trParts
           .map((p) => String(partValue(p) ?? JSON.stringify(p ?? '')))
           .join('');
+        // Log tool results for transparency in multi-turn flows
+        const resultPreview = content.length > 150 ? content.slice(0, 150) + '...' : content;
+        const singleLine = resultPreview.replaceAll('\n', ' ');
+        log(`Tool result: ${tr.callId} → ${singleLine}`);
         out.push({ role: 'tool', tool_call_id: tr.callId, content });
       }
       if (texts.length) {
@@ -422,7 +627,8 @@ function activate(context) {
       }
       await context.secrets.store(MANAGED_SECRET_KEY, trimmed);
       const readBack = await context.secrets.get(MANAGED_SECRET_KEY);
-      log(`API key stored (read-back: ${readBack && readBack.length ? `ok len=${readBack.length}` : 'FAILED'}).`);
+      const readStatus = readBack?.length ? `ok len=${readBack.length}` : 'FAILED';
+      log(`API key stored (read-back: ${readStatus}).`);
       provider.fireChanged();
       void vscode.window.showInformationMessage('Unsloth BYOK: API key stored. Model list will refresh automatically.');
     })
@@ -440,6 +646,18 @@ function activate(context) {
     vscode.commands.registerCommand('unslothByok.refreshModels', () => {
       provider.fireChanged();
       log('Manual refresh requested.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('unslothByok.showWorkspaceContext', async () => {
+      const wsCtx = await gatherWorkspaceContext();
+      const contextStr = buildWorkspaceContextPrompt(wsCtx);
+      log('=== Workspace Context Snapshot ===');
+      log(contextStr);
+      await vscode.window.showInformationMessage(
+        `Workspace context gathered: ${wsCtx.openFiles.length} open files, ${wsCtx.workspaceFolders.length} folders. Check Unsloth BYOK output channel for details.`
+      );
     })
   );
 
@@ -464,6 +682,8 @@ function activate(context) {
   log('Unsloth BYOK provider activated.');
 }
 
-function deactivate() {}
+function deactivate() {
+  // Cleanup handled by VS Code's subscription management
+}
 
 module.exports = { activate, deactivate };
