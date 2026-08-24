@@ -2,7 +2,7 @@
   "name": "byok-models",
   "displayName": "BYOK Models — OpenAI-Compatible Provider",
   "description": "Zero-touch dynamic language model provider for local inference. Works with any OpenAI-compatible endpoint — Ollama, LM Studio, vLLM, and more. Models are discovered live from /v1/models.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "cristall",
   "icon": "icon.png",
   "repository": {

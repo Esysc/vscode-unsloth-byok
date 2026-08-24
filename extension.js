@@ -225,7 +225,7 @@ async function getActiveFileContext(lines = 10) {
 }
 
 
-class BYOK ModelsProvider {
+class BYOKModelsProvider {
   /**
    * @param {vscode.ExtensionContext} context
    */
@@ -665,7 +665,7 @@ function activate(context) {
   channel = vscode.window.createOutputChannel('BYOK Models');
   context.subscriptions.push(channel);
 
-  const provider = new BYOK ModelsProvider(context);
+  const provider = new BYOKModelsProvider(context);
   context.subscriptions.push(provider);
   context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
 
@@ -696,9 +696,10 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('byokModels.clearApiKey', async () => {
+      await context.secrets.delete(MANAGED_SECRET_KEY);
       await context.secrets.delete(SECRET_KEY);
       provider.fireChanged();
-      log('API key cleared.');
+      log('API key cleared (managed + legacy).');
     })
   );
 
