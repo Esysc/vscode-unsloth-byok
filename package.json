@@ -1,0 +1,93 @@
+{
+  "name": "unsloth-byok",
+  "displayName": "Unsloth BYOK Models",
+  "description": "Zero-touch dynamic language model provider for any OpenAI-compatible endpoint. Models are discovered live from /v1/models — no manual list maintenance.",
+  "version": "0.1.6",
+  "publisher": "cristall",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguageModelChatProvider:unsloth"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Unsloth BYOK",
+      "properties": {
+        "unslothByok.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of the OpenAI-compatible API (should end with /v1). Models are fetched from <baseUrl>/models."
+        },
+        "unslothByok.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Plaintext fallback for the API key. Prefer the command **Unsloth BYOK: Set API Key**, which stores the key in VS Code secret storage."
+        },
+        "unslothByok.maxInputTokens": {
+          "type": "number",
+          "default": 262144,
+          "description": "Reported max input tokens for discovered models."
+        },
+        "unslothByok.maxOutputTokens": {
+          "type": "number",
+          "default": 32768,
+          "description": "Reported max output tokens for discovered models."
+        },
+        "unslothByok.enableTools": {
+          "type": "boolean",
+          "default": true,
+          "description": "Advertise tool-calling capability (needed for Copilot agent mode) and pass tools through to the endpoint."
+        }
+      }
+    },
+    "languageModelChatProviders": [
+      {
+        "vendor": "unsloth",
+        "displayName": "Unsloth",
+        "configuration": {
+          "type": "object",
+          "required": ["apiKey"],
+          "properties": {
+            "apiKey": {
+              "type": "string",
+              "title": "Unsloth API Key",
+              "description": "Enter your Unsloth API key.",
+              "secret": true
+            },
+            "baseUrl": {
+              "type": "string",
+              "title": "Base URL",
+              "description": "OpenAI-compatible endpoint base URL, ending with /v1.",
+              "default": ""
+            }
+          }
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "unslothByok.setApiKey",
+        "title": "Unsloth BYOK: Set API Key",
+        "category": "Unsloth BYOK"
+      },
+      {
+        "command": "unslothByok.clearApiKey",
+        "title": "Unsloth BYOK: Clear API Key",
+        "category": "Unsloth BYOK"
+      },
+      {
+        "command": "unslothByok.refreshModels",
+        "title": "Unsloth BYOK: Refresh Model List",
+        "category": "Unsloth BYOK"
+      }
+    ]
+  }
+}
