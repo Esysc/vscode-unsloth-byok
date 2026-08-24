@@ -256,10 +256,18 @@ class UnslothProvider {
     return h;
   }
 
-  signal(token) {
+  signal(token, timeoutMs = 0) {
     const controller = new AbortController();
+    let timer;
+    if (timeoutMs > 0) {
+      // ponytail: single dangling setTimeout is fine; discovery calls are short-lived
+      timer = setTimeout(() => controller.abort(), timeoutMs);
+    }
     if (token) {
-      token.onCancellationRequested(() => controller.abort());
+      token.onCancellationRequested(() => {
+        clearTimeout(timer);
+        controller.abort();
+      });
     }
     return controller.signal;
   }
@@ -269,7 +277,7 @@ class UnslothProvider {
    *
    * @returns {Promise<vscode.LanguageModelChatInformation[]>}
    */
-  async provideLanguageModelChatInformation(_options, token) {
+  async provideLanguageModelChatInformation(options, token) {
     const { url: base, source: baseSource } = await resolveBaseUrl(this.context);
     const apiKey = await this.resolveApiKey();
     /** @type {vscode.LanguageModelChatInformation[]} */
@@ -278,7 +286,8 @@ class UnslothProvider {
       log(
         `Not configured -> baseUrl: ${base || 'MISSING'} (${baseSource}), apiKey source: ${await this.apiKeySource()}`
       );
-      if (!this._nudged) {
+      // Docs: honor options.silent — background resolutions must not prompt.
+      if (!options.silent && !this._nudged) {
         this._nudged = true;
         void vscode.window
           .showInformationMessage('Unsloth BYOK is not configured yet.', 'Set API Key')
@@ -293,7 +302,8 @@ class UnslothProvider {
     try {
       const res = await fetch(`${base}/models`, {
         headers: this.headers(apiKey, false),
-        signal: this.signal(token),
+        // ponytail: 15s cap so an unreachable baseUrl can't hang model resolution
+        signal: this.signal(token, 15000),
       });
       if (!res.ok) {
         throw new Error(`/models failed: HTTP ${res.status}`);
@@ -319,7 +329,7 @@ class UnslothProvider {
         });
       }
       log(
-        `Discovered ${models.length} model(s) from ${base}/models (url: ${baseSource}, key: ${await this.apiKeySource()}).`
+        `Discovered ${models.length} model(s) from ${base}/models (url: ${baseSource}, key: ${await this.apiKeySource()}). ids: ${models.map((m) => m.id).join(', ') || '(none)'}`
       );
     } catch (err) {
       log(`Model discovery failed from ${base}/models: ${err?.message ?? err}`);
