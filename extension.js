@@ -38,6 +38,29 @@ function log(message) {
 // via `unslothByok.baseUrl` or the Add-model UI (`unsloth.baseUrl` secret).
 const DEFAULT_BASE_URL = '';
 
+function trimUrl(url) {
+  const value = String(url ?? '').trim();
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+/**
+ * Values entered through VS Code's native "Add model" UI are stored by VS Code
+ * itself (secrets under internal `chat.lm.secret.*` keys, the rest in its
+ * language-models config file) and handed to the provider via
+ * `options.configuration` on every provideLanguageModelChatInformation call.
+ * This is not in the stable vscode.d.ts yet, but the extension host forwards it.
+ */
+function uiConfiguration(options) {
+  const c = options?.configuration;
+  if (!c || typeof c !== 'object') {
+    return { baseUrl: '', apiKey: '' };
+  }
+  return {
+    baseUrl: trimUrl(c.baseUrl),
+    apiKey: typeof c.apiKey === 'string' ? c.apiKey.trim() : '',
+  };
+}
+
 async function resolveBaseUrl(context) {
   const managed = ((await context.secrets.get(`${VENDOR}.baseUrl`)) ?? '').trim();
   if (managed) {
@@ -278,13 +301,27 @@ class UnslothProvider {
    * @returns {Promise<vscode.LanguageModelChatInformation[]>}
    */
   async provideLanguageModelChatInformation(options, token) {
-    const { url: base, source: baseSource } = await resolveBaseUrl(this.context);
-    const apiKey = await this.resolveApiKey();
+    // Prefer the values entered in the native Add-model UI (options.configuration),
+    // then fall back to secret storage / settings.
+    const ui = uiConfiguration(options);
+    let base = ui.baseUrl;
+    let baseSource = 'add-model UI (options.configuration)';
+    if (!base) {
+      const resolved = await resolveBaseUrl(this.context);
+      base = resolved.url;
+      baseSource = resolved.source;
+    }
+    let apiKey = ui.apiKey;
+    let keySource = 'add-model UI (options.configuration)';
+    if (!apiKey) {
+      apiKey = await this.resolveApiKey();
+      keySource = await this.apiKeySource();
+    }
     /** @type {vscode.LanguageModelChatInformation[]} */
     const models = [];
     if (!base || !apiKey) {
       log(
-        `Not configured -> baseUrl: ${base || 'MISSING'} (${baseSource}), apiKey source: ${await this.apiKeySource()}`
+        `Not configured -> baseUrl: ${base || 'MISSING'} (${baseSource}), apiKey source: ${keySource}`
       );
       // Docs: honor options.silent — background resolutions must not prompt.
       if (!options.silent && !this._nudged) {
@@ -326,10 +363,15 @@ class UnslothProvider {
           capabilities: { toolCalling: enableTools, imageInput: false },
           isUserSelectable: true,
           detail: 'discovered dynamically from /v1/models',
+          // Ride-along credentials (same pattern as VS Code's built-in BYOK
+          // providers): extra properties survive the extension-host round trip
+          // and come back on `model` in provideLanguageModelChatResponse.
+          baseUrl: base,
+          apiKey,
         });
       }
       log(
-        `Discovered ${models.length} model(s) from ${base}/models (url: ${baseSource}, key: ${await this.apiKeySource()}). ids: ${models.map((m) => m.id).join(', ') || '(none)'}`
+        `Discovered ${models.length} model(s) from ${base}/models (url: ${baseSource}, key: ${keySource}). ids: ${models.map((m) => m.id).join(', ') || '(none)'}`
       );
     } catch (err) {
       log(`Model discovery failed from ${base}/models: ${err?.message ?? err}`);
@@ -342,8 +384,16 @@ class UnslothProvider {
    * Injects workspace context into the request when enabled.
    */
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
-    const { url: base } = await resolveBaseUrl(this.context);
-    const apiKey = await this.resolveApiKey();
+    // Credentials discovered during provideLanguageModelChatInformation ride along
+    // on the model object; fall back to secret storage / settings if absent.
+    let base = trimUrl(model?.baseUrl);
+    let apiKey = String(model?.apiKey ?? '').trim();
+    if (!base) {
+      base = (await resolveBaseUrl(this.context)).url;
+    }
+    if (!apiKey) {
+      apiKey = await this.resolveApiKey();
+    }
     if (!base || !apiKey) {
       throw new Error('Unsloth BYOK is not configured (missing base URL or API key).');
     }

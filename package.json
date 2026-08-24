@@ -2,7 +2,7 @@
   "name": "unsloth-byok",
   "displayName": "Unsloth BYOK Models",
   "description": "Zero-touch dynamic language model provider for any OpenAI-compatible endpoint. Models are discovered live from /v1/models — no manual list maintenance.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "cristall",
   "license": "MIT",
   "private": true,

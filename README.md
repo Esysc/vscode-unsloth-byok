@@ -107,6 +107,18 @@ For now, tools are limited to what VS Code provides natively. Stay tuned for MCP
 
 ## Troubleshooting
 
+### I added the model via the native "Add model" UI but nothing happens
+
+Values entered there are stored by VS Code itself and passed to this extension as
+`options.configuration` on every model refresh — supported since v0.1.7. If models still
+don't appear:
+
+1. Check the **Unsloth BYOK** output channel: it logs the base URL/key source used for
+   discovery (`add-model UI (options.configuration)`, `secret:...`, or `setting:...`).
+2. Run **Unsloth BYOK: Refresh Model List** after changing the configuration.
+3. Duplicate empty entries named e.g. `unsloth 2` come from re-adding before v0.1.7;
+   delete the stale ones via the gear icon next to the provider in **Manage Models**.
+
 ### Models aren't receiving workspace context
 
 1. Check that `unslothByok.injectWorkspaceContext` is set to `true` in settings.
