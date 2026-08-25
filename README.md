@@ -12,6 +12,10 @@ syncing.
 git branch, project structure) automatically, enabling more relevant and context-aware
 assistance.
 
+## History
+
+Originally, I wrote this extension to connect to my Unsloth instance, but then I realized that the extension is quite generic for OpenAI-compatible endpoints. This extension allows you to connect to any OpenAI-compatible API endpoint, making it versatile for various AI model providers that support the OpenAI API format.
+
 ## Compatible providers
 
 Works with **any** OpenAI-compatible endpoint — just point it at a base URL ending in `/v1`
