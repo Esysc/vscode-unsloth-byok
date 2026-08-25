@@ -384,6 +384,19 @@ class BYOKModelsProvider {
    * Injects workspace context into the request when enabled.
    */
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
+    try {
+      return await this._doChatResponse(model, messages, options, progress, token);
+    } catch (err) {
+      const msg = err?.message ?? String(err);
+      log(`provideLanguageModelChatResponse FAILED: ${msg}`);
+      // Re-throw so VS Code surfaces the error in the chat UI instead of
+      // the generic "Sorry, no response was returned."
+      throw new Error(`BYOK Models: ${msg}`);
+    }
+  }
+
+  /** @private */
+  async _doChatResponse(model, messages, options, progress, token) {
     // Credentials discovered during provideLanguageModelChatInformation ride along
     // on the model object; fall back to secret storage / settings if absent.
     let base = trimUrl(model?.baseUrl);
@@ -402,15 +415,18 @@ class BYOKModelsProvider {
     const injectContext = settings().get('injectWorkspaceContext', true);
     let workspaceContextStr = '';
     if (injectContext) {
-      const wsCtx = await gatherWorkspaceContext();
-      workspaceContextStr = buildWorkspaceContextPrompt(wsCtx);
-      log(`Workspace context collected: ${wsCtx.workspaceFolders.length} folders, ${wsCtx.openFiles.length} open files`);
+      try {
+        const wsCtx = await gatherWorkspaceContext();
+        workspaceContextStr = buildWorkspaceContextPrompt(wsCtx);
+        log(`Workspace context collected: ${wsCtx.workspaceFolders.length} folders, ${wsCtx.openFiles.length} open files`);
+      } catch (ctxErr) {
+        log(`Workspace context gathering failed (continuing without): ${ctxErr?.message ?? ctxErr}`);
+      }
     }
 
     // Build messages with workspace context injected into the first system/user message
     let messagesForModel = toOpenAiMessages(messages);
     if (workspaceContextStr) {
-      // Find or create system message
       const hasSystemMsg = messagesForModel.length > 0 && messagesForModel[0].role === 'system';
       if (hasSystemMsg) {
         messagesForModel[0].content = (messagesForModel[0].content || '') + '\n\n' + workspaceContextStr;
@@ -656,6 +672,12 @@ async function* sseData(body) {
       }
     }
   }
+  // Flush remaining buffer — some servers omit the trailing newline on the
+  // last data line, which would otherwise be silently dropped.
+  const tail = buffer.trim();
+  if (tail.startsWith('data:')) {
+    yield tail.slice(5).trim();
+  }
 }
 
 /**
@@ -667,7 +689,14 @@ function activate(context) {
 
   const provider = new BYOKModelsProvider(context);
   context.subscriptions.push(provider);
-  context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
+
+  // Register the language-model provider (requires VS Code ≥ 1.102).
+  // Wrap defensively: if lm API is unavailable, commands still register.
+  try {
+    context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
+  } catch (err) {
+    log(`Failed to register language model provider (lm API may not be available): ${err?.message ?? err}`);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand('byokModels.setApiKey', async () => {
