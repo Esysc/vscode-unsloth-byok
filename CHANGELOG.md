@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-08-26
+
+### Fixed
+
+- **Tool call arguments passed as string instead of object**: `LanguageModelToolCallPart` requires the `args` parameter to be a parsed JavaScript object, but the extension was passing the accumulated JSON string. This caused VS Code to reject every tool call with "must be object". Now the arguments are parsed into an object before being reported.
+
 ## [0.2.6] - 2026-08-26
 
 ### Added

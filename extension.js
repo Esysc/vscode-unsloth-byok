@@ -547,20 +547,22 @@ class BYOKModelsProvider {
       for (const [idx, acc] of [...toolAcc.entries()].sort((a, b) => a[0] - b[0])) {
         if (acc.name) {
           log(`Tool call ${idx}: ${acc.name}(${acc.args.length > 100 ? acc.args.slice(0, 100) + '...' : acc.args})`);
-          // Validate and normalise arguments so VS Code never rejects them
-          let args = acc.args || '{}';
+          // Parse arguments into an object — LanguageModelToolCallPart requires
+          // an object, not a JSON string.  VS Code rejects strings with
+          // "must be object".
+          let argsObj;
           try {
-            const parsed = JSON.parse(args);
+            const parsed = JSON.parse(acc.args || '{}');
             if (typeof parsed === 'string') {
               // Model emitted a bare string (e.g. "/path/to/file") instead of
               // an object. Wrap it so VS Code accepts the tool call.
-              log(`Tool call ${idx}: args was a bare string, wrapping as JSON object`);
-              args = JSON.stringify({ path: parsed });
+              log(`Tool call ${idx}: args was a bare string, wrapping as object`);
+              argsObj = { path: parsed };
             } else if (typeof parsed !== 'object' || parsed === null) {
               log(`Tool call ${idx}: args was a non-object primitive, wrapping`);
-              args = JSON.stringify({ value: parsed });
+              argsObj = { value: parsed };
             } else {
-              args = JSON.stringify(parsed);
+              argsObj = parsed;
             }
           } catch {
             // Unparseable JSON — emit a descriptive tool result so the model
@@ -568,17 +570,17 @@ class BYOKModelsProvider {
             log(`Tool call ${idx}: unparseable args, emitting error result`);
             const callId = acc.id || randomId();
             progress.report(
-              new vscode.LanguageModelToolCallPart(callId, acc.name, '{}'),
+              new vscode.LanguageModelToolCallPart(callId, acc.name, {}),
             );
             progress.report(
               new vscode.LanguageModelToolResultPart(
                 callId,
-                `Error: Invalid JSON arguments supplied. The raw arguments were: ${args.slice(0, 500)}`,
+                `Error: Invalid JSON arguments supplied. The raw arguments were: ${acc.args.slice(0, 500)}`,
               ),
             );
             continue;
           }
-          progress.report(new vscode.LanguageModelToolCallPart(acc.id || randomId(), acc.name, args));
+          progress.report(new vscode.LanguageModelToolCallPart(acc.id || randomId(), acc.name, argsObj));
         }
       }
     }
