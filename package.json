@@ -2,7 +2,7 @@
   "name": "byok-models",
   "displayName": "BYOK Models — OpenAI-Compatible Provider",
   "description": "Zero-touch dynamic language model provider for local inference. Works with any OpenAI-compatible endpoint — Ollama, LM Studio, vLLM, and more. Models are discovered live from /v1/models.",
-  "version": "0.2.7",
+  "version": "0.2.9",
   "publisher": "cristall",
   "icon": "icon.png",
   "repository": {
@@ -61,8 +61,8 @@
         },
         "byokModels.injectWorkspaceContext": {
           "type": "boolean",
-          "default": true,
-          "markdownDescription": "Automatically inject workspace context (active files, git info, open tabs) into system prompts. Enables models to understand your project structure and provide more relevant responses."
+          "default": false,
+          "markdownDescription": "Automatically inject workspace context (active files, git info, open tabs) into system prompts. Enables models to understand your project structure and provide more relevant responses. Disabled by default for local models with smaller context windows."
         },
         "byokModels.debugLogging": {
           "type": "boolean",
@@ -71,7 +71,7 @@
         },
         "byokModels.maxWorkspaceContextChars": {
           "type": "number",
-          "default": 2000,
+          "default": 500,
           "markdownDescription": "Maximum characters for workspace context injected into prompts. Lower this for small local models (8B and below) to avoid overwhelming them."
         },
         "byokModels.requestTimeoutMs": {

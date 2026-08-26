@@ -61,21 +61,41 @@ endpoint supports it; disable via `byokModels.enableTools`.
 |---|---|---|
 | `byokModels.baseUrl` | *(empty)* | OpenAI-compatible base URL, ending with `/v1` (required) |
 | `byokModels.apiKey` | *(empty)* | Plaintext fallback (prefer the secret-storage command) |
-| `byokModels.maxInputTokens` | `262144` | Reported context window |
-| `byokModels.maxOutputTokens` | `32768` | Reported max output |
+| `byokModels.maxInputTokens` | `262144` | Fallback context window (overridden by model's declared limit) |
+| `byokModels.maxOutputTokens` | `32768` | Fallback max output (overridden by model's declared limit) |
 | `byokModels.enableTools` | `true` | Advertise + pass through tool calling |
-| `byokModels.injectWorkspaceContext` | `true` | Inject workspace metadata (files, git, project structure) into system prompts |
+| `byokModels.injectWorkspaceContext` | `false` | Inject workspace metadata (files, git, project structure) into system prompts — **disabled by default for local models** |
+| `byokModels.maxWorkspaceContextChars` | `500` | Max chars for workspace context (capped at 25% of model's context window) |
 | `byokModels.debugLogging` | `false` | Enable verbose logging of tool calls and workspace context |
+| `byokModels.requestTimeoutMs` | `120000` | Request timeout in ms (2 min default) |
+
+## Dynamic Context Window Adaptation (v0.2.9+)
+
+The extension now **automatically reads the model's context window** from `/v1/models` metadata during discovery. Supported fields (checked in order):
+
+- `context_window` (vLLM)
+- `max_context_length` (Ollama)
+- `max_tokens` (LM Studio)
+- `n_ctx` (llama.cpp)
+
+When a model declares its context window, the extension:
+1. **Sets `maxInputTokens`/`maxOutputTokens` per-model** — uses the declared limit (with 25% reserved for output)
+2. **Calculates workspace context budget dynamically** — 25% of context window × 4 chars/token, capped by `maxWorkspaceContextChars`
+3. **Shows context window in model picker** — detail displays e.g., "context: 112,896 tokens"
+
+This prevents "context window exceeded" errors with local models that have smaller limits.
 
 ## Workspace Context Injection
 
-When `byokModels.injectWorkspaceContext` is enabled (default: true), the extension automatically
+When `byokModels.injectWorkspaceContext` is enabled (default: **false** for local models), the extension automatically
 injects workspace metadata into your model's system prompt:
 
 - **Active file** — current editor, language, line count
 - **Open files** — tabs currently visible in VS Code
 - **Workspace folders** — project structure and root paths
 - **Git info** — current branch, uncommitted changes count
+
+The injected context is **dynamically sized** based on the model's declared context window (25% budget, capped at `maxWorkspaceContextChars`). For a model with 112,896 tokens, that's ~112K chars budget (capped at 500 by default).
 
 This allows your models to provide **context-aware assistance** without requiring you to manually
 describe your project. The model understands:

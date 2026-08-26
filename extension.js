@@ -362,13 +362,25 @@ class BYOKModelsProvider {
         throw new Error(`/models failed: HTTP ${res.status}`);
       }
       const payload = await res.json();
-      const maxIn = settings().get('maxInputTokens', 262144);
-      const maxOut = settings().get('maxOutputTokens', 32768);
       const enableTools = settings().get('enableTools', true);
+      // Fallback defaults from settings (used if model doesn't declare its own limits)
+      const defaultMaxIn = settings().get('maxInputTokens', 262144);
+      const defaultMaxOut = settings().get('maxOutputTokens', 32768);
       for (const m of payload.data ?? []) {
         if (!m?.id) {
           continue;
         }
+        // Try to read context window from model metadata (various server conventions)
+        // vLLM: context_window, Ollama: max_context_length, LM Studio: max_tokens, etc.
+        const modelContextWindow =
+          m.context_window ??
+          m.max_context_length ??
+          m.max_tokens ??
+          m.n_ctx ??
+          defaultMaxIn;
+        // Use model's declared context window, with a safety margin for output tokens
+        const maxIn = Math.min(modelContextWindow, defaultMaxIn);
+        const maxOut = Math.min(defaultMaxOut, Math.floor(modelContextWindow * 0.25));
         models.push({
           id: String(m.id),
           name: String(m.id).split('/').pop(),
@@ -378,12 +390,14 @@ class BYOKModelsProvider {
           maxOutputTokens: maxOut,
           capabilities: { toolCalling: enableTools, imageInput: false },
           isUserSelectable: true,
-          detail: 'discovered dynamically from /v1/models',
+          detail: `discovered dynamically from /v1/models (context: ${maxIn.toLocaleString()} tokens)`,
           // Ride-along credentials (same pattern as VS Code's built-in BYOK
           // providers): extra properties survive the extension-host round trip
           // and come back on `model` in provideLanguageModelChatResponse.
           baseUrl: base,
           apiKey,
+          // Store model's declared context window for dynamic workspace context sizing
+          contextWindow: modelContextWindow,
         });
       }
       log(
@@ -434,19 +448,26 @@ class BYOKModelsProvider {
     }
 
     // Gather and optionally inject workspace context.
-    // Cap context length to avoid overwhelming small local models that already
-    // receive a large system prompt + tool schemas from VS Code.
-    const injectContext = settings().get('injectWorkspaceContext', true);
-    const maxContextChars = settings().get('maxWorkspaceContextChars', 2000);
+    // Dynamically size workspace context based on model's declared context window.
+    // Reserve ~75% for conversation history + system prompt + tool schemas,
+    // use up to 25% for workspace context (with a configurable cap).
+    const injectContext = settings().get('injectWorkspaceContext', false);
+    const maxContextCharsSetting = settings().get('maxWorkspaceContextChars', 500);
+    // Model's declared context window (from /v1/models metadata), fallback to setting
+    const modelContextWindow = model.contextWindow ?? settings().get('maxInputTokens', 262144);
+    // Heuristic: ~4 chars per token, reserve 75% for conversation, use up to 25% for workspace
+    const dynamicMaxContextChars = Math.floor((modelContextWindow * 0.25) * 4);
+    const maxContextChars = Math.min(maxContextCharsSetting, dynamicMaxContextChars);
     let workspaceContextStr = '';
     if (injectContext) {
       try {
         const wsCtx = await gatherWorkspaceContext();
         workspaceContextStr = buildWorkspaceContextPrompt(wsCtx);
         log(`Workspace context collected: ${wsCtx.workspaceFolders.length} folders, ${wsCtx.openFiles.length} open files`);
+        log(`Model context window: ${modelContextWindow.toLocaleString()} tokens, workspace context budget: ${maxContextChars} chars`);
         if (workspaceContextStr.length > maxContextChars) {
           workspaceContextStr = workspaceContextStr.slice(0, maxContextChars) + '\n…(truncated)';
-          log(`Workspace context truncated to ${maxContextChars} chars`);
+          log(`Workspace context truncated to ${maxContextChars} chars (${Math.floor(maxContextChars/4).toLocaleString()} tokens)`);
         }
       } catch (ctxErr) {
         log(`Workspace context gathering failed (continuing without): ${ctxErr?.message ?? ctxErr}`);
@@ -497,12 +518,14 @@ class BYOKModelsProvider {
 
     const requestTimeoutMs = settings().get('requestTimeoutMs', 120_000);
     log(`Request timeout: ${requestTimeoutMs}ms`);
+    log(`Request body: ${JSON.stringify(body).slice(0, 500)}`);
     const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: this.headers(apiKey, true),
       body: JSON.stringify(body),
       signal: this.signal(token, requestTimeoutMs),
     });
+    log(`HTTP response: ${res.status} ${res.statusText}`);
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
       throw new Error(`chat/completions failed: HTTP ${res.status} ${detail}`);
@@ -512,6 +535,8 @@ class BYOKModelsProvider {
     const toolAcc = new Map();
     let textContent = '';
     for await (const data of sseData(res.body)) {
+      // DEBUG: Log raw SSE data to understand what the model returns
+      log(`SSE data: ${data.length > 200 ? data.slice(0, 200) + '...' : data}`);
       if (data === '[DONE]') {
         break;
       }

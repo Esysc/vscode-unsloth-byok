@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-08-26
+
+### Added
+
+- **Dynamic context window adaptation**: Model context window is now read from `/v1/models` metadata (supports `context_window`, `max_context_length`, `max_tokens`, `n_ctx` fields from vLLM, Ollama, LM Studio, etc.). The extension automatically:
+  - Sets `maxInputTokens`/`maxOutputTokens` per-model based on declared limits
+  - Calculates workspace context budget as 25% of context window (capped by `maxWorkspaceContextChars` setting)
+  - Disables workspace context injection by default for safer local inference
+- **Per-model context window display**: Model detail in picker now shows discovered context window (e.g., "context: 112,896 tokens")
+
+### Changed
+
+- **Default `injectWorkspaceContext`**: `true` → `false` (opt-in for local models)
+- **Default `maxWorkspaceContextChars`**: `2000` → `500` (conservative for small models)
+
+## [0.2.8] - 2026-08-26 (unreleased, local only)
+
+### Added
+
+- **Dynamic context window adaptation**: Model context window is now read from `/v1/models` metadata (supports `context_window`, `max_context_length`, `max_tokens`, `n_ctx` fields from vLLM, Ollama, LM Studio, etc.). The extension automatically:
+  - Sets `maxInputTokens`/`maxOutputTokens` per-model based on declared limits
+  - Calculates workspace context budget as 25% of context window (capped by `maxWorkspaceContextChars` setting)
+  - Disables workspace context injection by default for safer local inference
+- **Per-model context window display**: Model detail in picker now shows discovered context window (e.g., "context: 112,896 tokens")
+
+### Changed
+
+- **Default `injectWorkspaceContext`**: `true` → `false` (opt-in for local models)
+- **Default `maxWorkspaceContextChars`**: `2000` → `500` (conservative for small models)
+
 ## [0.2.7] - 2026-08-26
 
 ### Fixed
