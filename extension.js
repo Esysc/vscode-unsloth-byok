@@ -38,6 +38,11 @@ function log(message) {
 // via `byokModels.baseUrl` or the Add-model UI (`byok-models.baseUrl` secret).
 const DEFAULT_BASE_URL = '';
 
+// Cache TTL for model discovery results (30 seconds). Avoids redundant
+// /v1/models fetches when VS Code calls provideLanguageModelChatInformation
+// multiple times in rapid succession (e.g., model picker refreshes).
+const MODEL_CACHE_TTL_MS = 30_000;
+
 function trimUrl(url) {
   const value = String(url ?? '').trim();
   return value.endsWith('/') ? value.slice(0, -1) : value;
@@ -235,9 +240,12 @@ class BYOKModelsProvider {
     this.onDidChangeLanguageModelChatInformation = this._emitter.event;
     /** @type {boolean} */
     this._nudged = false;
+    /** @type {{ models: import('vscode').LanguageModelChatInformation[], ts: number } | null} */
+    this._cache = null;
   }
 
   fireChanged() {
+    this._cache = null;
     this._emitter.fire();
   }
 
@@ -320,21 +328,29 @@ class BYOKModelsProvider {
     /** @type {vscode.LanguageModelChatInformation[]} */
     const models = [];
     if (!base || !apiKey) {
-      log(
-        `Not configured -> baseUrl: ${base || 'MISSING'} (${baseSource}), apiKey source: ${keySource}`
-      );
-      // Docs: honor options.silent — background resolutions must not prompt.
-      if (!options.silent && !this._nudged) {
-        this._nudged = true;
-        void vscode.window
-          .showInformationMessage('BYOK Models is not configured yet.', 'Set API Key')
-          .then((pick) => {
-            if (pick) {
-              void vscode.commands.executeCommand('byokModels.setApiKey');
-            }
-          });
+      // Silent/background calls should not log or prompt — they fire frequently
+      // during startup and model picker refreshes, producing noisy output.
+      if (!options.silent) {
+        log(
+          `Not configured -> baseUrl: ${base || 'MISSING'} (${baseSource}), apiKey source: ${keySource}`
+        );
+        if (!this._nudged) {
+          this._nudged = true;
+          void vscode.window
+            .showInformationMessage('BYOK Models is not configured yet.', 'Set API Key')
+            .then((pick) => {
+              if (pick) {
+                void vscode.commands.executeCommand('byokModels.setApiKey');
+              }
+            });
+        }
       }
       return models;
+    }
+
+    // Return cached models if still fresh (30 s TTL) to avoid redundant fetches.
+    if (this._cache && (Date.now() - this._cache.ts) < MODEL_CACHE_TTL_MS) {
+      return this._cache.models;
     }
     try {
       const res = await fetch(`${base}/models`, {
@@ -373,6 +389,7 @@ class BYOKModelsProvider {
       log(
         `Discovered ${models.length} model(s) from ${base}/models (url: ${baseSource}, key: ${keySource}). ids: ${models.map((m) => m.id).join(', ') || '(none)'}`
       );
+      this._cache = { models, ts: Date.now() };
     } catch (err) {
       log(`Model discovery failed from ${base}/models: ${err?.message ?? err}`);
     }

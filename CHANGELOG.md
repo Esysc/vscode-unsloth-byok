@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-08-26
+
+### Added
+
+- **Model discovery cache**: a 30-second TTL cache on `provideLanguageModelChatInformation`
+  avoids redundant `/v1/models` fetches when VS Code calls the method multiple times
+  in rapid succession (model picker refreshes, background resolutions).
+- **Management command**: the `languageModelChatProviders` contribution now declares a
+  `managementCommand` (`byokModels.setApiKey`), giving users a "Manage" button in
+  the VS Code Add Model UI.
+
+### Fixed
+
+- **Noisy "Not configured" logs suppressed**: silent/background calls to
+  `provideLanguageModelChatInformation` no longer emit the
+  `Not configured -> baseUrl: MISSING` log line or trigger the nudge prompt.
+  This eliminates ~90% of the log noise in the BYOK Models output channel.
+- **`baseUrl` now required in Add Model UI**: the `configuration.required` array
+  in `package.json` now includes both `apiKey` and `baseUrl`, preventing the
+  incomplete-configuration cycle where a user enters an API key but no base URL.
+
 ## [0.2.4] - 2026-08-25
 
 ### Changed
