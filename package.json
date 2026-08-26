@@ -2,7 +2,7 @@
   "name": "byok-models",
   "displayName": "BYOK Models — OpenAI-Compatible Provider",
   "description": "Zero-touch dynamic language model provider for local inference. Works with any OpenAI-compatible endpoint — Ollama, LM Studio, vLLM, and more. Models are discovered live from /v1/models.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publisher": "cristall",
   "icon": "icon.png",
   "repository": {
@@ -68,6 +68,16 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Enable verbose logging of tool calls, results, and workspace context. Check the **BYOK Models** output channel for details."
+        },
+        "byokModels.maxWorkspaceContextChars": {
+          "type": "number",
+          "default": 2000,
+          "markdownDescription": "Maximum characters for workspace context injected into prompts. Lower this for small local models (8B and below) to avoid overwhelming them."
+        },
+        "byokModels.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "markdownDescription": "Request timeout in milliseconds for chat completions. If the model does not respond within this time, the request is cancelled. Default: 120000 (2 minutes)."
         }
       }
     },

@@ -406,9 +406,14 @@ class BYOKModelsProvider {
     } catch (err) {
       const msg = err?.message ?? String(err);
       log(`provideLanguageModelChatResponse FAILED: ${msg}`);
+      // Translate common abort reasons into actionable messages
+      let friendly = msg;
+      if (msg === 'terminated' || msg === 'The operation was aborted') {
+        friendly = 'Request timed out or was cancelled. The model may be too slow for the prompt size — try a smaller model, reduce context, or increase the requestTimeoutMs setting.';
+      }
       // Re-throw so VS Code surfaces the error in the chat UI instead of
       // the generic "Sorry, no response was returned."
-      throw new Error(`BYOK Models: ${msg}`);
+      throw new Error(`BYOK Models: ${friendly}`);
     }
   }
 
@@ -428,14 +433,21 @@ class BYOKModelsProvider {
       throw new Error('BYOK Models is not configured (missing base URL or API key).');
     }
 
-    // Gather and optionally inject workspace context
+    // Gather and optionally inject workspace context.
+    // Cap context length to avoid overwhelming small local models that already
+    // receive a large system prompt + tool schemas from VS Code.
     const injectContext = settings().get('injectWorkspaceContext', true);
+    const maxContextChars = settings().get('maxWorkspaceContextChars', 2000);
     let workspaceContextStr = '';
     if (injectContext) {
       try {
         const wsCtx = await gatherWorkspaceContext();
         workspaceContextStr = buildWorkspaceContextPrompt(wsCtx);
         log(`Workspace context collected: ${wsCtx.workspaceFolders.length} folders, ${wsCtx.openFiles.length} open files`);
+        if (workspaceContextStr.length > maxContextChars) {
+          workspaceContextStr = workspaceContextStr.slice(0, maxContextChars) + '\n…(truncated)';
+          log(`Workspace context truncated to ${maxContextChars} chars`);
+        }
       } catch (ctxErr) {
         log(`Workspace context gathering failed (continuing without): ${ctxErr?.message ?? ctxErr}`);
       }
@@ -483,11 +495,13 @@ class BYOKModelsProvider {
       log(`Tools available: ${options.tools.map((t) => t.name).join(', ')}`);
     }
 
+    const requestTimeoutMs = settings().get('requestTimeoutMs', 120_000);
+    log(`Request timeout: ${requestTimeoutMs}ms`);
     const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: this.headers(apiKey, true),
       body: JSON.stringify(body),
-      signal: this.signal(token),
+      signal: this.signal(token, requestTimeoutMs),
     });
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
@@ -528,12 +542,43 @@ class BYOKModelsProvider {
       }
     }
 
-    // Log tool calls for debugging/tracing
+    // Log tool calls for debugging/tracing and validate args
     if (toolAcc.size > 0) {
       for (const [idx, acc] of [...toolAcc.entries()].sort((a, b) => a[0] - b[0])) {
         if (acc.name) {
           log(`Tool call ${idx}: ${acc.name}(${acc.args.length > 100 ? acc.args.slice(0, 100) + '...' : acc.args})`);
-          progress.report(new vscode.LanguageModelToolCallPart(acc.id || randomId(), acc.name, acc.args || '{}'));
+          // Validate and normalise arguments so VS Code never rejects them
+          let args = acc.args || '{}';
+          try {
+            const parsed = JSON.parse(args);
+            if (typeof parsed === 'string') {
+              // Model emitted a bare string (e.g. "/path/to/file") instead of
+              // an object. Wrap it so VS Code accepts the tool call.
+              log(`Tool call ${idx}: args was a bare string, wrapping as JSON object`);
+              args = JSON.stringify({ path: parsed });
+            } else if (typeof parsed !== 'object' || parsed === null) {
+              log(`Tool call ${idx}: args was a non-object primitive, wrapping`);
+              args = JSON.stringify({ value: parsed });
+            } else {
+              args = JSON.stringify(parsed);
+            }
+          } catch {
+            // Unparseable JSON — emit a descriptive tool result so the model
+            // knows what went wrong instead of VS Code silently rejecting it.
+            log(`Tool call ${idx}: unparseable args, emitting error result`);
+            const callId = acc.id || randomId();
+            progress.report(
+              new vscode.LanguageModelToolCallPart(callId, acc.name, '{}'),
+            );
+            progress.report(
+              new vscode.LanguageModelToolResultPart(
+                callId,
+                `Error: Invalid JSON arguments supplied. The raw arguments were: ${args.slice(0, 500)}`,
+              ),
+            );
+            continue;
+          }
+          progress.report(new vscode.LanguageModelToolCallPart(acc.id || randomId(), acc.name, args));
         }
       }
     }

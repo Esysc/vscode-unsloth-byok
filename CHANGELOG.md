@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-08-26
+
+### Added
+
+- **Configurable request timeout** (`byokModels.requestTimeoutMs`, default 120 s):
+  stalled requests are now cancelled after the timeout instead of hanging
+  indefinitely. Prevents the VS Code chat UI from freezing when a small local
+  model chokes on a large prompt.
+- **Workspace context size cap** (`byokModels.maxWorkspaceContextChars`,
+  default 2000): the injected workspace context is truncated when it exceeds
+  this limit, reducing prompt bloat for models with limited context windows.
+- **Tool call argument validation**: malformed tool arguments from the model
+  (bare strings, unparseable JSON) are now normalised or rejected with a
+  descriptive error result so the model can self-correct instead of VS Code
+  silently discarding the call.
+
+### Fixed
+
+- **"terminated" error message improved**: the generic "BYOK Models:
+  terminated" error now explains the likely cause (timeout / cancellation) and
+  suggests actionable next steps.
+- **Tool call sort comparator typo**: fixed `b[1]` → `b[0]` in the tool-call
+  sorting comparator that could produce non-deterministic ordering.
+
 ## [0.2.5] - 2026-08-26
 
 ### Added
