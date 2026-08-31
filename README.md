@@ -24,12 +24,12 @@ remote endpoints too. Tested and compatible with:
 
 - **[Ollama](https://ollama.com/)** — `http://localhost:11434/v1`
 - **[LM Studio](https://lmstudio.ai/)** — `http://localhost:1234/v1`
-- **[vLLM](https://github.com/vllm-project/vllm)` — `http://localhost:8000/v1`
-- **[LocalAI](https://localai.io/)` — `http://localhost:8080/v1`
-- **[llama.cpp server](https://github.com/ggerganov/llama.cpp)` — `http://localhost:8080/v1`
-- **[Text Generation WebUI](https://github.com/oobabooga/text-generation-webui)` — `http://localhost:5000/v1`
-- **[Unsloth](https://github.com/unslothai/unsloth)` — any self-hosted or cloud endpoint
-- **[OpenRouter](https://openrouter.ai/)` — `https://openrouter.ai/api/v1`
+- **[vLLM](https://github.com/vllm-project/vllm)** — `http://localhost:8000/v1`
+- **[LocalAI](https://localai.io/)** — `http://localhost:8080/v1`
+- **[llama.cpp server](https://github.com/ggerganov/llama.cpp)** — `http://localhost:8080/v1`
+- **[Text Generation WebUI](https://github.com/oobabooga/text-generation-webui)** — `http://localhost:5000/v1`
+- **[Unsloth](https://github.com/unslothai/unsloth)** — any self-hosted or cloud endpoint
+- **[OpenRouter](https://openrouter.ai/)** — `https://openrouter.ai/api/v1`
 - Any cloud provider with an OpenAI-compatible API (Azure, together.ai, fireworks.ai, etc.)
 
 If it serves `/v1/models` and `/v1/chat/completions`, it works.
