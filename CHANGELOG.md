@@ -4,6 +4,64 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.17] - 2026-08-31
+
+### Fixed
+
+- **Legacy secret storage no longer shadows discovery**: the fallback to the old
+  single-endpoint secret (`byok-models.baseUrl`) was still being read during
+  model discovery, so a stale junk URL (`qwe.com`) from an earlier test kept
+  blocking the Add Endpoint form and failing discovery. Discovery now uses
+  **only** the `byokModels.endpoints` setting.
+
+### Changed
+
+- **Single source of truth for endpoints**: model discovery now reads endpoints only
+  from the `byokModels.endpoints` setting, and no longer reads VS Code's native
+  Add-model UI store (`options.configuration`). That store is opaque (kept under
+  internal `chat.lm.secret.*` keys), can't be cleared from extension code, and would
+  keep feeding discovery a stale value — e.g. a half-typed or junk URL — which
+  shadowed the real config and blocked the Add Endpoint form. Endpoints added via
+  **BYOK Models: Add Endpoint** go into the setting and are the only thing used.
+
+### Added
+
+- **Multiple provider endpoints**: previously the extension was limited to a single
+  endpoint per vendor — once the native **Add model** UI was used, adding a second
+  provider silently failed because VS Code only stores one `baseUrl`/API key per
+  vendor. A new `byokModels.endpoints` setting (an array of `{baseUrl, apiKey, name?}`)
+  plus two commands, **BYOK Models: Add Endpoint** and **BYOK Models: Remove
+  Endpoint**, let you register any number of OpenAI-compatible endpoints
+  (Ollama, LM Studio, vLLM, …). Models from every endpoint are aggregated into the
+  picker, each labelled with its endpoint name (or the URL host when unnamed).
+- **Named endpoints**: **Add Endpoint** asks for a display name first, then the base
+  URL, then the key. The name becomes the group label in the model picker.
+- **Native dialog now collects a name**: the `languageModelChatProviders`
+  configuration schema includes an optional `name` field, so the native **Add model**
+  dialog also accepts a display name.
+- **Keyless local endpoints**: the `Authorization` header is only sent when a key is
+  actually present, so keyless servers (Ollama, LM Studio) work without a dummy key.
+
+### Changed
+
+- **"Add model" goes straight to the form**: when no endpoint is configured, clicking
+  the native **Add model** button runs the **Add Endpoint** name-first form directly
+  (no intermediate notification), throttled to at most once per 30 s.
+- **Endpoints persist reliably**: `byokModels.endpoints` is stored at application
+  scope and written with error handling, so added endpoints survive across
+  workspaces instead of being silently dropped. Provider **Manage** button opens the
+  Add Endpoint flow.
+- **Default `requestTimeoutMs`**: `120000` → `300000` (5 min) so slow local models
+  aren't cut off mid-generation.
+
+### Fixed
+
+- **Abort error message not translated**: the friendly timeout/cancellation hint now
+  matches Node/undici's `'This operation was aborted'` message (regex covers all
+  variants) instead of leaking the raw error.
+- **"Not configured" prompts no longer get stuck**: the one-shot/dismissed-once
+  behaviour is replaced with a throttle, so the prompt reappears on repeat clicks.
+
 ## [0.2.9] - 2026-08-26
 
 ### Added

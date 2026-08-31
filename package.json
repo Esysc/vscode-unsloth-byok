@@ -2,7 +2,7 @@
   "name": "byok-models",
   "displayName": "BYOK Models — OpenAI-Compatible Provider",
   "description": "Zero-touch dynamic language model provider for local inference. Works with any OpenAI-compatible endpoint — Ollama, LM Studio, vLLM, and more. Models are discovered live from /v1/models.",
-  "version": "0.2.9",
+  "version": "0.2.20",
   "publisher": "cristall",
   "icon": "icon.png",
   "repository": {
@@ -76,8 +76,14 @@
         },
         "byokModels.requestTimeoutMs": {
           "type": "number",
-          "default": 120000,
-          "markdownDescription": "Request timeout in milliseconds for chat completions. If the model does not respond within this time, the request is cancelled. Default: 120000 (2 minutes)."
+          "default": 300000,
+          "markdownDescription": "Request timeout in milliseconds for chat completions. If the model does not respond within this time, the request is cancelled. Default: 300000 (5 minutes)."
+        },
+        "byokModels.endpoints": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "OpenAI-compatible endpoints (each `{ baseUrl, apiKey, name? }`). Use the command **BYOK Models: Add Endpoint** to add endpoints; they are stored here and persist across workspaces. An optional `name` labels the endpoint in the model picker (falls back to the URL host)."
         }
       }
     },
@@ -85,11 +91,17 @@
       {
         "vendor": "byok-models",
         "displayName": "BYOK Models",
-        "managementCommand": "byokModels.setApiKey",
+        "managementCommand": "byokModels.addEndpoint",
         "configuration": {
           "type": "object",
           "required": ["apiKey", "baseUrl"],
           "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name",
+              "description": "A display name for this endpoint (e.g. \"My Ollama\").",
+              "default": ""
+            },
             "apiKey": {
               "type": "string",
               "title": "API Key",
@@ -127,6 +139,18 @@
         "title": "BYOK Models: Show Workspace Context",
         "category": "BYOK Models",
         "description": "Display the workspace context that will be injected into model prompts."
+      },
+      {
+        "command": "byokModels.addEndpoint",
+        "title": "BYOK Models: Add Endpoint",
+        "category": "BYOK Models",
+        "description": "Add another OpenAI-compatible endpoint (base URL + API key)."
+      },
+      {
+        "command": "byokModels.removeEndpoint",
+        "title": "BYOK Models: Remove Endpoint",
+        "category": "BYOK Models",
+        "description": "Remove an existing endpoint configured via byokModels.endpoints."
       }
     ]
   }

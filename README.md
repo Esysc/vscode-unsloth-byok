@@ -50,6 +50,9 @@ Then in VS Code: Extensions view → `⋯` → **Install from VSIX…** → pick
 2. Command Palette → **BYOK Models: Set API Key** (stored in VS Code secret storage).
 3. Optionally adjust the token-limit settings if your endpoint differs from the defaults.
 
+To add a **second** endpoint (the native dialog only supports one per vendor), run
+**BYOK Models: Add Endpoint** instead — see the troubleshooting section.
+
 ## Use
 Open AI Chat → model picker → your configured provider section. All models reported by the
 endpoint appear there dynamically. Tool calling is passed through (agent mode works) when the
@@ -148,6 +151,21 @@ Model Context Protocol (MCP) support is on the roadmap for providing even richer
 For now, tools are limited to what VS Code provides natively. Stay tuned for MCP server support!
 
 ## Troubleshooting
+
+### The native "Add model" dialog doesn't let me add a second provider
+
+VS Code's native **Add model** dialog only stores **one** base URL / API key per
+provider and, after you cancel it, may silently do nothing when reopened. These
+are core VS Code behaviours the extension cannot change. To configure additional
+providers reliably, don't use that dialog — use the extension's own command:
+
+1. Command Palette → **BYOK Models: Add Endpoint**
+2. Enter a display name (e.g. "My Ollama")
+3. Enter the endpoint's base URL (e.g. `http://localhost:11434/v1`)
+4. Enter the API key if required (leave blank for keyless servers like Ollama / LM Studio)
+
+Each endpoint you add appears alongside the native one in the model picker.
+Use **BYOK Models: Remove Endpoint** to delete one.
 
 ### I added the model via the native "Add model" UI but nothing happens
 
