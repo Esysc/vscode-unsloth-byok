@@ -79,10 +79,9 @@ async function resolveBaseUrl(context) {
  */
 function resolveEndpoints() {
   const out = [];
-  // ponytail: debug what the setting actually returns
-  const epSetting = settings().get('endpoints', []);
-  log(`resolveEndpoints: byokModels.endpoints = ${JSON.stringify(epSetting)}`);
-  const extra = Array.isArray(epSetting) ? epSetting : [];
+  const extra = Array.isArray(settings().get('endpoints', []))
+    ? settings().get('endpoints', [])
+    : [];
   for (const e of extra) {
     const url = trimUrl(e?.baseUrl);
     if (url) {
