@@ -43,31 +43,47 @@ npx @vscode/vsce package --allow-missing-repository
 Then in VS Code: Extensions view → `⋯` → **Install from VSIX…** → pick the generated
 `byok-models-<version>.vsix`, and reload the window.
 
-## Configure (one time)
+## Configure
 
-1. Set `byokModels.baseUrl` to your OpenAI-compatible endpoint (must end with `/v1`) —
-   either in Settings or via the native **Add model** UI.
-2. Command Palette → **BYOK Models: Set API Key** (stored in VS Code secret storage).
-3. Optionally adjust the token-limit settings if your endpoint differs from the defaults.
+### Option 1: Native "Add model" (first endpoint)
+
+1. Open AI Chat → **Manage Models** → **Add model** → **BYOK Models**
+2. Enter a **Name** (e.g. "My Ollama"), **Base URL** (`http://localhost:11434/v1`), **API Key** (or leave empty for keyless servers like Ollama/LM Studio)
+3. Done — models appear in the picker.
+
+### Option 2: Command Palette (any number of endpoints)
+
+For a second, third, etc. endpoint (VS Code's native UI only stores one per vendor):
+
+1. Command Palette → **BYOK Models: Add Endpoint**
+2. Enter a display name (e.g. "My Ollama")
+3. Enter the base URL (e.g. `http://localhost:11434/v1`)
+4. Enter the API key if required (leave blank for keyless servers)
+5. Repeat for each endpoint.
+
+All endpoints appear in the model picker with their name as a suffix (e.g. `llama3 · My Ollama`).
+Use **BYOK Models: Remove Endpoint** to delete one.
 
 ## Use
-Open AI Chat → model picker → your configured provider section. All models reported by the
-endpoint appear there dynamically. Tool calling is passed through (agent mode works) when the
-endpoint supports it; disable via `byokModels.enableTools`.
+
+Open AI Chat → model picker → **BYOK Models** section. All models reported by every
+configured endpoint appear there dynamically. Tool calling is passed through (agent mode
+works) when the endpoint supports it; disable via `byokModels.enableTools`.
 
 ## Settings
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `byokModels.baseUrl` | *(empty)* | OpenAI-compatible base URL, ending with `/v1` (required) |
-| `byokModels.apiKey` | *(empty)* | Plaintext fallback (prefer the secret-storage command) |
+| `byokModels.endpoints` | `[]` | Array of `{baseUrl, apiKey, name?}` — primary multi-endpoint config |
+| `byokModels.baseUrl` | *(empty)* | Legacy single-endpoint base URL (fallback) |
+| `byokModels.apiKey` | *(empty)* | Legacy single-endpoint API key (fallback) |
 | `byokModels.maxInputTokens` | `262144` | Fallback context window (overridden by model's declared limit) |
 | `byokModels.maxOutputTokens` | `32768` | Fallback max output (overridden by model's declared limit) |
 | `byokModels.enableTools` | `true` | Advertise + pass through tool calling |
 | `byokModels.injectWorkspaceContext` | `false` | Inject workspace metadata (files, git, project structure) into system prompts — **disabled by default for local models** |
 | `byokModels.maxWorkspaceContextChars` | `500` | Max chars for workspace context (capped at 25% of model's context window) |
 | `byokModels.debugLogging` | `false` | Enable verbose logging of tool calls and workspace context |
-| `byokModels.requestTimeoutMs` | `120000` | Request timeout in ms (2 min default) |
+| `byokModels.requestTimeoutMs` | `300000` | Request timeout in ms (5 min default) |
 
 ## Dynamic Context Window Adaptation (v0.2.9+)
 
@@ -149,17 +165,12 @@ For now, tools are limited to what VS Code provides natively. Stay tuned for MCP
 
 ## Troubleshooting
 
-### I added the model via the native "Add model" UI but nothing happens
+### Models don't appear / "Not configured"
 
-Values entered there are stored by VS Code itself and passed to this extension as
-`options.configuration` on every model refresh — supported since v0.1.7. If models still
-don't appear:
-
-1. Check the **BYOK Models** output channel: it logs the base URL/key source used for
-   discovery (`add-model UI (options.configuration)`, `secret:...`, or `setting:...`).
-2. Run **BYOK Models: Refresh Model List** after changing the configuration.
-3. Duplicate empty entries named e.g. `byok-models 2` come from re-adding before v0.1.7;
-   delete the stale ones via the gear icon next to the provider in **Manage Models**.
+1. Ensure you've added at least one endpoint via **Add model** (native UI) or **BYOK Models: Add Endpoint** (Command Palette).
+2. Check the **BYOK Models** output channel — it logs the base URL/key source used for discovery (`setting:byokModels.endpoints`, `secret:...`, or `setting:...`).
+3. Run **BYOK Models: Refresh Model List** after changing the configuration.
+4. If you see duplicate empty entries (e.g. `byok-models 2`), delete them via the gear icon next to the provider in **Manage Models**.
 
 ### Models aren't receiving workspace context
 

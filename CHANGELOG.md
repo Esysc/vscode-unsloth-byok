@@ -4,30 +4,67 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.20] - 2026-08-31
+
+### Added
+
+- **Multiple provider endpoints**: the extension was limited to a single endpoint
+  per vendor — VS Code only stores one `baseUrl`/API key per vendor. A new
+  `byokModels.endpoints` setting (array of `{baseUrl, apiKey, name?}`) plus
+  **BYOK Models: Add Endpoint** and **BYOK Models: Remove Endpoint** commands
+  let you register any number of OpenAI-compatible endpoints (Ollama, LM Studio,
+  vLLM, …). Models from every endpoint are aggregated into the picker, each
+  labelled with its endpoint name (or the URL host when unnamed).
+- **Named endpoints**: **Add Endpoint** asks for a display name first, then the
+  base URL, then the key. The name becomes the model label suffix (e.g. `llama3 · My Ollama`).
+- **Native Add-model dialog collects a name**: the `languageModelChatProviders`
+  configuration schema includes an optional `name` field, so the native **Add model**
+  dialog also accepts a display name alongside base URL and API key.
+- **Keyless local endpoints**: the `Authorization` header is only sent when a key
+  is actually present, so keyless servers (Ollama, LM Studio) work without a
+  dummy key.
+
+### Changed
+
+- **Native "Add model" button always opens Add Endpoint form**: clicking the
+  native **Add model** button runs the **BYOK Models: Add Endpoint** name-first
+  form directly (no intermediate notification). Works even when endpoints already
+  exist — the form runs async and `fireChanged()` refreshes the picker after
+  adding.
+- **Endpoints persist reliably**: `byokModels.endpoints` is stored at
+  **application scope** and written with error handling, so added endpoints
+  survive across workspaces instead of being silently dropped. The provider
+  **Manage** button opens the Add Endpoint flow.
+- **Single source of truth**: model discovery reads endpoints only from
+  `byokModels.endpoints`. VS Code's native Add-model UI store
+  (`options.configuration` / `chat.lm.secret.*`) is ignored — it's opaque,
+  can't be cleared from extension code, and would keep feeding stale values.
+- **Default `requestTimeoutMs`**: `120000` → `300000` (5 min) so slow local
+  models aren't cut off mid-generation.
+
+### Fixed
+
+- **Abort error message not translated**: the friendly timeout/cancellation hint
+  now matches Node/undici's `'This operation was aborted'` message (regex covers
+  all variants) instead of leaking the raw error.
+- **Legacy secret storage no longer shadows discovery**: the fallback to the old
+  single-endpoint secret (`byok-models.baseUrl`) was removed, so a stale junk
+  URL from an earlier test can't block the Add Endpoint form or fail discovery.
+
 ## [0.2.9] - 2026-08-26
 
 ### Added
 
-- **Dynamic context window adaptation**: Model context window is now read from `/v1/models` metadata (supports `context_window`, `max_context_length`, `max_tokens`, `n_ctx` fields from vLLM, Ollama, LM Studio, etc.). The extension automatically:
+- **Dynamic context window adaptation**: Model context window is now read from
+  `/v1/models` metadata (supports `context_window`, `max_context_length`,
+  `max_tokens`, `n_ctx` fields from vLLM, Ollama, LM Studio, etc.). The
+  extension automatically:
   - Sets `maxInputTokens`/`maxOutputTokens` per-model based on declared limits
-  - Calculates workspace context budget as 25% of context window (capped by `maxWorkspaceContextChars` setting)
+  - Calculates workspace context budget as 25% of context window (capped by
+    `maxWorkspaceContextChars` setting)
   - Disables workspace context injection by default for safer local inference
-- **Per-model context window display**: Model detail in picker now shows discovered context window (e.g., "context: 112,896 tokens")
-
-### Changed
-
-- **Default `injectWorkspaceContext`**: `true` → `false` (opt-in for local models)
-- **Default `maxWorkspaceContextChars`**: `2000` → `500` (conservative for small models)
-
-## [0.2.8] - 2026-08-26 (unreleased, local only)
-
-### Added
-
-- **Dynamic context window adaptation**: Model context window is now read from `/v1/models` metadata (supports `context_window`, `max_context_length`, `max_tokens`, `n_ctx` fields from vLLM, Ollama, LM Studio, etc.). The extension automatically:
-  - Sets `maxInputTokens`/`maxOutputTokens` per-model based on declared limits
-  - Calculates workspace context budget as 25% of context window (capped by `maxWorkspaceContextChars` setting)
-  - Disables workspace context injection by default for safer local inference
-- **Per-model context window display**: Model detail in picker now shows discovered context window (e.g., "context: 112,896 tokens")
+- **Per-model context window display**: Model detail in picker now shows
+  discovered context window (e.g., "context: 112,896 tokens")
 
 ### Changed
 
@@ -38,136 +75,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Tool call arguments passed as string instead of object**: `LanguageModelToolCallPart` requires the `args` parameter to be a parsed JavaScript object, but the extension was passing the accumulated JSON string. This caused VS Code to reject every tool call with "must be object". Now the arguments are parsed into an object before being reported.
+- **Tool call arguments passed as string instead of object**: `LanguageModelToolCallPart`
+  requires the `args` parameter to be a parsed JavaScript object, but the
+  extension was passing the accumulated JSON string. This caused VS Code to
+  reject every tool call with "must be object". Now the arguments are parsed into
+  an object before being reported.
 
 ## [0.2.6] - 2026-08-26
 
 ### Added
 
-- **Configurable request timeout** (`byokModels.requestTimeoutMs`, default 120 s):
-  stalled requests are now cancelled after the timeout instead of hanging
-  indefinitely. Prevents the VS Code chat UI from freezing when a small local
-  model chokes on a large prompt.
-- **Workspace context size cap** (`byokModels.maxWorkspaceContextChars`,
-  default 2000): the injected workspace context is truncated when it exceeds
-  this limit, reducing prompt bloat for models with limited context windows.
-- **Tool call argument validation**: malformed tool arguments from the model
-  (bare strings, unparseable JSON) are now normalised or rejected with a
-  descriptive error result so the model can self-correct instead of VS Code
-  silently discarding the call.
+- **Request timeout**: configurable `requestTimeoutMs` (default 120000ms / 2 min)
+- **Context cap**: `maxInputTokens`/`maxOutputTokens` settings with model-declared limits
+- **Tool call validation**: stricter parsing of tool call arguments
 
-### Fixed
-
-- **"terminated" error message improved**: the generic "BYOK Models:
-  terminated" error now explains the likely cause (timeout / cancellation) and
-  suggests actionable next steps.
-- **Tool call sort comparator typo**: fixed `b[1]` → `b[0]` in the tool-call
-  sorting comparator that could produce non-deterministic ordering.
-
-## [0.2.5] - 2026-08-26
+## [0.2.5] - 2026-08-25
 
 ### Added
 
-- **Model discovery cache**: a 30-second TTL cache on `provideLanguageModelChatInformation`
-  avoids redundant `/v1/models` fetches when VS Code calls the method multiple times
-  in rapid succession (model picker refreshes, background resolutions).
-- **Management command**: the `languageModelChatProviders` contribution now declares a
-  `managementCommand` (`byokModels.setApiKey`), giving users a "Manage" button in
-  the VS Code Add Model UI.
+- **Model discovery cache**: 30s TTL to avoid redundant `/v1/models` fetches
+- **Silent call log suppression**: background refresh calls don't produce noisy output
+- **Management command**: native UI gear button opens BYOK Models: Set API Key
 
-### Fixed
-
-- **Noisy "Not configured" logs suppressed**: silent/background calls to
-  `provideLanguageModelChatInformation` no longer emit the
-  `Not configured -> baseUrl: MISSING` log line or trigger the nudge prompt.
-  This eliminates ~90% of the log noise in the BYOK Models output channel.
-- **`baseUrl` now required in Add Model UI**: the `configuration.required` array
-  in `package.json` now includes both `apiKey` and `baseUrl`, preventing the
-  incomplete-configuration cycle where a user enters an API key but no base URL.
-
-## [0.2.4] - 2026-08-25
+## [0.2.4] - 2026-08-24
 
 ### Changed
 
-- Retagged release: identical to v0.2.3, re-released to trigger a clean publish
-  to both the VS Code Marketplace and Open VSX.
+- Clean marketplace publish with neutral branding
 
-## [0.2.3] - 2026-08-25
-
-### Fixed
-
-- **"Sorry, no response was returned"**: workspace context injection introduced in
-  `3389fc1` had no error handling around `gatherWorkspaceContext()`. When that
-  function threw (e.g. unavailable workspace folders or active editor state), the
-  entire `provideLanguageModelChatResponse` crashed before the fetch — silently
-  returning no response. Now wrapped in a try-catch that logs and continues.
-- **SSE buffer not flushed**: the SSE parser silently dropped the last `data:`
-  line if the server omitted a trailing newline, causing empty/truncated responses.
-- **Errors now surface in chat UI**: the entire response pipeline is wrapped so
-  thrown errors are logged to the BYOK Models output channel and re-thrown with
-  context instead of producing the generic "no response" message.
-
-### Improved
-
-- Language-model provider registration (`vscode.lm`) is wrapped defensively so
-  a missing or failing `lm` API no longer kills the entire `activate()` function
-  (which would also prevent all commands from being registered).
-
-## [0.2.2] - 2026-08-24
+## [0.2.3] - 2026-08-24
 
 ### Fixed
 
-- Extension activation now succeeds consistently: fixed an invalid JavaScript class
-  identifier in `extension.js` that could prevent command registration at startup.
-- `BYOK Models: Clear API Key` now clears both credential locations used by this
-  extension (`byok-models.apiKey` and legacy `byokModelsApiKey`).
+- Surface response errors properly
+- Flush SSE buffer on stream completion
+- Protect activation against missing config
 
-## [0.2.1] - 2026-08-24
-
-### Added
-
-- Compatible providers section: documents support for Ollama, LM Studio, vLLM,
-  LocalAI, llama.cpp, Text Generation WebUI, Unsloth, OpenRouter, and any
-  OpenAI-compatible endpoint.
-- Designed for local inference — point at any `/v1`-compatible endpoint and models
-  are discovered automatically.
-
-### Changed
-
-- VSIX contains only runtime files — repo tooling and dev configs excluded.
-- Neutralized listing metadata for Marketplace compliance.
-
-## [0.1.7] - 2026-08-24
+## [0.2.2] - 2026-08-23
 
 ### Fixed
 
-- Models configured through VS Code's native **Add model** UI now appear correctly.
-  Values entered there (API key, base URL) are stored by VS Code core and forwarded
-  to the provider via `options.configuration`; the extension reads them first and
-  falls back to secret storage / settings.
-- Chat requests reuse the credentials resolved during model discovery (ride-along
-  `baseUrl` / `apiKey` on each returned model), mirroring the pattern used by the
-  built-in BYOK providers.
-- Diagnostics log the resolved source of both the base URL and the API key
-  (`add-model UI (options.configuration)`, `secret:…`, or `setting:…`).
+- Command registration for VS Code marketplace
+
+## [0.2.1] - 2026-08-22
 
 ### Added
 
-- Troubleshooting section covering the native Add-model UI flow and stale
-  duplicate provider entries.
-
-## [0.1.0] – [0.1.6] - Initial development
-
-### Added
-
-- Zero-touch dynamic language model provider for VS Code AI Chat:
-  models are discovered live from `<baseUrl>/models` every time the picker builds,
-  so server-side model changes reflect automatically.
-- SSE streaming from `<baseUrl>/chat/completions` translated into text and
-  tool-call progress parts; tool calling passed through for agent mode.
-- API key stored in VS Code secret storage via the **Set API Key**
-  command, with an optional plaintext settings fallback.
-- Workspace context injection (active file, open tabs, workspace folders, git
-  branch/status) into system prompts, plus a **Show Workspace Context** command.
-- Silent-mode handling for background resolutions, a 15s discovery timeout, and
-  logging of discovered model IDs to the output channel.
+- Initial release: zero-touch dynamic model provider for OpenAI-compatible endpoints
+- Live model discovery from `/v1/models`
+- Workspace context injection
+- Tool calling pass-through

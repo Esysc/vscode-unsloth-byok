@@ -54,17 +54,8 @@ function trimUrl(url) {
  * language-models config file) and handed to the provider via
  * `options.configuration` on every provideLanguageModelChatInformation call.
  * This is not in the stable vscode.d.ts yet, but the extension host forwards it.
+ * We deliberately do NOT read it as an endpoint source — see resolveEndpoints.
  */
-function uiConfiguration(options) {
-  const c = options?.configuration;
-  if (!c || typeof c !== 'object') {
-    return { baseUrl: '', apiKey: '' };
-  }
-  return {
-    baseUrl: trimUrl(c.baseUrl),
-    apiKey: typeof c.apiKey === 'string' ? c.apiKey.trim() : '',
-  };
-}
 
 async function resolveBaseUrl(context) {
   const managed = ((await context.secrets.get(`${VENDOR}.baseUrl`)) ?? '').trim();
@@ -76,6 +67,42 @@ async function resolveBaseUrl(context) {
     return { url: configured.endsWith('/') ? configured.slice(0, -1) : configured, source: 'setting:byokModels.baseUrl' };
   }
   return { url: DEFAULT_BASE_URL, source: 'default' };
+}
+
+/**
+ * All configured endpoints. Only the `byokModels.endpoints` setting is used —
+ * the native Add-model UI store (options.configuration) is deliberately NOT read:
+ * VS Code hands us whatever the user typed there forever (including junk or a
+ * cancelled half-edit), and there is no stable API to clear it, so a stale native
+ * value could shadow our setting and block the Add Endpoint form.
+ * @returns {{ baseUrl: string, apiKey: string, name: string, source: string }[]}
+ */
+function resolveEndpoints() {
+  const out = [];
+  const extra = Array.isArray(settings().get('endpoints', []))
+    ? settings().get('endpoints', [])
+    : [];
+  for (const e of extra) {
+    const url = trimUrl(e?.baseUrl);
+    if (url) {
+      out.push({
+        baseUrl: url,
+        apiKey: String(e?.apiKey ?? '').trim(),
+        name: endpointName(e?.name, url),
+        source: 'setting:byokModels.endpoints',
+      });
+    }
+  }
+  return out;
+}
+
+/** Friendly label for an endpoint: explicit name, else its host, else the URL. */
+function endpointName(name, baseUrl) {
+  const n = String(name ?? '').trim();
+  if (n) {
+    return n;
+  }
+  return baseUrl.replace(/^https?:\/\//, '');
 }
 
 function settings() {
@@ -238,8 +265,6 @@ class BYOKModelsProvider {
     this.context = context;
     this._emitter = new vscode.EventEmitter();
     this.onDidChangeLanguageModelChatInformation = this._emitter.event;
-    /** @type {boolean} */
-    this._nudged = false;
     /** @type {{ models: import('vscode').LanguageModelChatInformation[], ts: number } | null} */
     this._cache = null;
   }
@@ -266,21 +291,13 @@ class BYOKModelsProvider {
     return legacy;
   }
 
-  async apiKeySource() {
-    if (((await this.context.secrets.get(MANAGED_SECRET_KEY)) ?? '').trim()) {
-      return `secret:${MANAGED_SECRET_KEY} (Add model UI)`;
-    }
-    if (String(settings().get('apiKey', '') || '').trim()) {
-      return 'setting:byokModels.apiKey';
-    }
-    if (((await this.context.secrets.get(SECRET_KEY)) ?? '').trim()) {
-      return `secret:${SECRET_KEY} (legacy)`;
-    }
-    return 'NOT FOUND';
-  }
-
   headers(apiKey, withBody) {
-    const h = { Authorization: `Bearer ${apiKey}` };
+    // ponytail: local endpoints (Ollama etc.) often need no key — only send the
+    // Authorization header when a key is actually present.
+    const h = {};
+    if (apiKey) {
+      h.Authorization = `Bearer ${apiKey}`;
+    }
     if (withBody) {
       h['Content-Type'] = 'application/json';
     }
@@ -309,104 +326,90 @@ class BYOKModelsProvider {
    * @returns {Promise<vscode.LanguageModelChatInformation[]>}
    */
   async provideLanguageModelChatInformation(options, token) {
-    // Prefer the values entered in the native Add-model UI (options.configuration),
-    // then fall back to secret storage / settings.
-    const ui = uiConfiguration(options);
-    let base = ui.baseUrl;
-    let baseSource = 'add-model UI (options.configuration)';
-    if (!base) {
-      const resolved = await resolveBaseUrl(this.context);
-      base = resolved.url;
-      baseSource = resolved.source;
-    }
-    let apiKey = ui.apiKey;
-    let keySource = 'add-model UI (options.configuration)';
-    if (!apiKey) {
-      apiKey = await this.resolveApiKey();
-      keySource = await this.apiKeySource();
-    }
+    // Endpoints come only from the `byokModels.endpoints` setting.
+    // Legacy single-endpoint secret/storage is deliberately ignored.
+    const endpoints = resolveEndpoints();
     /** @type {vscode.LanguageModelChatInformation[]} */
     const models = [];
-    if (!base || !apiKey) {
-      // Silent/background calls should not log or prompt — they fire frequently
-      // during startup and model picker refreshes, producing noisy output.
-      if (!options.silent) {
-        log(
-          `Not configured -> baseUrl: ${base || 'MISSING'} (${baseSource}), apiKey source: ${keySource}`
-        );
-        if (!this._nudged) {
-          this._nudged = true;
-          void vscode.window
-            .showInformationMessage('BYOK Models is not configured yet.', 'Set API Key')
-            .then((pick) => {
-              if (pick) {
-                void vscode.commands.executeCommand('byokModels.setApiKey');
-              }
-            });
-        }
+    // Explicit "Add model" click (options.silent === false) should always offer
+    // to add another endpoint, even when some already exist.
+    if (!options.silent) {
+      log(
+        `Add model clicked (${endpoints.length} endpoint(s) configured). Opening Add Endpoint form.`
+      );
+      void vscode.commands.executeCommand('byokModels.addEndpoint');
+      // Return current models immediately; the form runs async and will fire
+      // fireChanged() to refresh the picker after the user adds one.
+      if (endpoints.length > 0) {
+        // Continue to discover and return current models below
+      } else {
+        return models;
       }
-      return models;
     }
 
     // Return cached models if still fresh (30 s TTL) to avoid redundant fetches.
     if (this._cache && (Date.now() - this._cache.ts) < MODEL_CACHE_TTL_MS) {
       return this._cache.models;
     }
-    try {
-      const res = await fetch(`${base}/models`, {
-        headers: this.headers(apiKey, false),
-        // ponytail: 15s cap so an unreachable baseUrl can't hang model resolution
-        signal: this.signal(token, 15000),
-      });
-      if (!res.ok) {
-        throw new Error(`/models failed: HTTP ${res.status}`);
-      }
-      const payload = await res.json();
-      const enableTools = settings().get('enableTools', true);
-      // Fallback defaults from settings (used if model doesn't declare its own limits)
-      const defaultMaxIn = settings().get('maxInputTokens', 262144);
-      const defaultMaxOut = settings().get('maxOutputTokens', 32768);
-      for (const m of payload.data ?? []) {
-        if (!m?.id) {
-          continue;
-        }
-        // Try to read context window from model metadata (various server conventions)
-        // vLLM: context_window, Ollama: max_context_length, LM Studio: max_tokens, etc.
-        const modelContextWindow =
-          m.context_window ??
-          m.max_context_length ??
-          m.max_tokens ??
-          m.n_ctx ??
-          defaultMaxIn;
-        // Use model's declared context window, with a safety margin for output tokens
-        const maxIn = Math.min(modelContextWindow, defaultMaxIn);
-        const maxOut = Math.min(defaultMaxOut, Math.floor(modelContextWindow * 0.25));
-        models.push({
-          id: String(m.id),
-          name: String(m.id).split('/').pop(),
-          family: VENDOR,
-          version: m.created ? String(m.created) : '1',
-          maxInputTokens: maxIn,
-          maxOutputTokens: maxOut,
-          capabilities: { toolCalling: enableTools, imageInput: false },
-          isUserSelectable: true,
-          detail: `discovered dynamically from /v1/models (context: ${maxIn.toLocaleString()} tokens)`,
-          // Ride-along credentials (same pattern as VS Code's built-in BYOK
-          // providers): extra properties survive the extension-host round trip
-          // and come back on `model` in provideLanguageModelChatResponse.
-          baseUrl: base,
-          apiKey,
-          // Store model's declared context window for dynamic workspace context sizing
-          contextWindow: modelContextWindow,
+    const enableTools = settings().get('enableTools', true);
+    const defaultMaxIn = settings().get('maxInputTokens', 262144);
+    const defaultMaxOut = settings().get('maxOutputTokens', 32768);
+
+    for (const ep of endpoints) {
+      try {
+        const res = await fetch(`${ep.baseUrl}/models`, {
+          headers: this.headers(ep.apiKey, false),
+          // ponytail: 15s cap so an unreachable baseUrl can't hang model resolution
+          signal: this.signal(token, 15000),
         });
+        if (!res.ok) {
+          throw new Error(`/models failed: HTTP ${res.status}`);
+        }
+        const payload = await res.json();
+        for (const m of payload.data ?? []) {
+          if (!m?.id) {
+            continue;
+          }
+          // Try to read context window from model metadata (various server conventions)
+          // vLLM: context_window, Ollama: max_context_length, LM Studio: max_tokens, etc.
+          const modelContextWindow =
+            m.context_window ??
+            m.max_context_length ??
+            m.max_tokens ??
+            m.n_ctx ??
+            defaultMaxIn;
+          // Use model's declared context window, with a safety margin for output tokens
+          const maxIn = Math.min(modelContextWindow, defaultMaxIn);
+          const maxOut = Math.min(defaultMaxOut, Math.floor(modelContextWindow * 0.25));
+          models.push({
+            id: `${ep.baseUrl}|${String(m.id)}`,
+            name: `${String(m.id).split('/').pop()} · ${ep.name}`,
+            family: VENDOR,
+            version: m.created ? String(m.created) : '1',
+            maxInputTokens: maxIn,
+            maxOutputTokens: maxOut,
+            capabilities: { toolCalling: enableTools, imageInput: false },
+            isUserSelectable: true,
+            detail: `${ep.source} · context: ${maxIn.toLocaleString()} tokens`,
+            // Ride-along credentials (same pattern as VS Code's built-in BYOK
+            // providers): extra properties survive the extension-host round trip
+            // and come back on `model` in provideLanguageModelChatResponse.
+            baseUrl: ep.baseUrl,
+            apiKey: ep.apiKey,
+            // Original model id used in the chat/completions request body
+            modelId: String(m.id),
+            // Store model's declared context window for dynamic workspace context sizing
+            contextWindow: modelContextWindow,
+          });
+        }
+        log(
+          `Discovered ${payload.data?.length ?? 0} model(s) from ${ep.baseUrl}/models (${ep.source})`
+        );
+      } catch (err) {
+        log(`Model discovery failed from ${ep.baseUrl}/models: ${err?.message ?? err}`);
       }
-      log(
-        `Discovered ${models.length} model(s) from ${base}/models (url: ${baseSource}, key: ${keySource}). ids: ${models.map((m) => m.id).join(', ') || '(none)'}`
-      );
-      this._cache = { models, ts: Date.now() };
-    } catch (err) {
-      log(`Model discovery failed from ${base}/models: ${err?.message ?? err}`);
     }
+    this._cache = { models, ts: Date.now() };
     return models;
   }
 
@@ -422,7 +425,9 @@ class BYOKModelsProvider {
       log(`provideLanguageModelChatResponse FAILED: ${msg}`);
       // Translate common abort reasons into actionable messages
       let friendly = msg;
-      if (msg === 'terminated' || msg === 'The operation was aborted') {
+      if (/terminated|operation was aborted/i.test(msg)) {
+        // ponytail: undici AbortError is 'This operation was aborted', a regex
+        // also catches 'The operation was aborted' and 'terminated'
         friendly = 'Request timed out or was cancelled. The model may be too slow for the prompt size — try a smaller model, reduce context, or increase the requestTimeoutMs setting.';
       }
       // Re-throw so VS Code surfaces the error in the chat UI instead of
@@ -443,8 +448,8 @@ class BYOKModelsProvider {
     if (!apiKey) {
       apiKey = await this.resolveApiKey();
     }
-    if (!base || !apiKey) {
-      throw new Error('BYOK Models is not configured (missing base URL or API key).');
+    if (!base) {
+      throw new Error('BYOK Models is not configured (missing base URL).');
     }
 
     // Gather and optionally inject workspace context.
@@ -489,7 +494,7 @@ class BYOKModelsProvider {
     }
 
     const body = {
-      model: model.id,
+      model: model.modelId ?? model.id,
       messages: messagesForModel,
       stream: true,
     };
@@ -516,7 +521,7 @@ class BYOKModelsProvider {
       log(`Tools available: ${options.tools.map((t) => t.name).join(', ')}`);
     }
 
-    const requestTimeoutMs = settings().get('requestTimeoutMs', 120_000);
+    const requestTimeoutMs = settings().get('requestTimeoutMs', 300_000);
     log(`Request timeout: ${requestTimeoutMs}ms`);
     log(`Request body: ${JSON.stringify(body).slice(0, 500)}`);
     const res = await fetch(`${base}/chat/completions`, {
@@ -809,6 +814,74 @@ function activate(context) {
       log(`API key stored (read-back: ${readStatus}).`);
       provider.fireChanged();
       void vscode.window.showInformationMessage('BYOK Models: API key stored. Model list will refresh automatically.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('byokModels.addEndpoint', async () => {
+      const name = await vscode.window.showInputBox({
+        prompt: 'Name for this endpoint (e.g. "My Ollama")',
+        ignoreFocusOut: true,
+      });
+      if (name === undefined) {
+        return;
+      }
+      const label = name.trim();
+      const baseUrl = await vscode.window.showInputBox({
+        prompt: 'Base URL of the OpenAI-compatible endpoint (e.g. http://localhost:11434/v1)',
+        ignoreFocusOut: true,
+      });
+      if (baseUrl === undefined) {
+        return;
+      }
+      const url = trimUrl(baseUrl);
+      if (!url) {
+        void vscode.window.showWarningMessage('BYOK Models: empty base URL — nothing added.');
+        return;
+      }
+      const apiKey = await vscode.window.showInputBox({
+        prompt: `API key for ${url} (leave empty for local endpoints)`,
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (apiKey === undefined) {
+        return;
+      }
+      const endpoints = Array.isArray(settings().get('endpoints', [])) ? settings().get('endpoints', []) : [];
+      if (endpoints.some((e) => trimUrl(e?.baseUrl) === url)) {
+        void vscode.window.showWarningMessage('BYOK Models: that endpoint is already configured.');
+        return;
+      }
+      const entry = { baseUrl: url, apiKey: apiKey.trim() };
+      if (label) {
+        // ponytail: optional label; unnamed endpoints fall back to the host
+        entry.name = label;
+      }
+      try {
+        await settings().update('endpoints', [...endpoints, entry], vscode.ConfigurationTarget.Global);
+      } catch (err) {
+        // ponytail: surface a silent write failure instead of losing the endpoint
+        void vscode.window.showErrorMessage(`BYOK Models: failed to save endpoint (${String(err?.message ?? err)}).`);
+        return;
+      }
+      provider.fireChanged();
+      void vscode.window.showInformationMessage('BYOK Models: endpoint added. Model list will refresh automatically.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('byokModels.removeEndpoint', async () => {
+      const endpoints = Array.isArray(settings().get('endpoints', [])) ? settings().get('endpoints', []) : [];
+      const picks = await vscode.window.showQuickPick(
+        endpoints.map((e, i) => ({ label: endpointName(e?.name, e?.baseUrl), description: e?.apiKey ? 'key set' : 'no key', index: i })),
+        { placeHolder: 'Select an endpoint to remove' }
+      );
+      if (!picks) {
+        return;
+      }
+      await settings().update('endpoints', endpoints.filter((_, i) => i !== picks.index), vscode.ConfigurationTarget.Global);
+      provider.fireChanged();
+      void vscode.window.showInformationMessage('BYOK Models: endpoint removed. Model list will refresh automatically.');
     })
   );
 
