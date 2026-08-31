@@ -58,8 +58,8 @@ For a second, third, etc. endpoint (VS Code's native UI only stores one per vend
 1. Command Palette → **BYOK Models: Add Endpoint**
 2. Enter a display name (e.g. "My Ollama")
 3. Enter the base URL (e.g. `http://localhost:11434/v1`)
-3. Enter the API key if required (leave blank for keyless servers)
-4. Repeat for each endpoint.
+4. Enter the API key if required (leave blank for keyless servers)
+5. Repeat for each endpoint.
 
 All endpoints appear in the model picker with their name as a suffix (e.g. `llama3 · My Ollama`).
 Use **BYOK Models: Remove Endpoint** to delete one.
